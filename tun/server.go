@@ -14,6 +14,7 @@ type ReverseProxyConfig struct {
 	Listen      Addr
 	Dest        Addr
 	LongPollDur time.Duration
+	Bufsz       int
 }
 
 // one ReverseProxy can contain many tunnels
@@ -201,7 +202,7 @@ func (s *ReverseProxy) startExternalHttpListener() {
 			return
 		}
 
-		tunnel := NewLongPoller(s.Cfg.Dest, s.Cfg.LongPollDur)
+		tunnel := NewLongPoller(LongPollerConfig{Dest: s.Cfg.Dest, PollDur: s.Cfg.LongPollDur, Bufsz: s.Cfg.Bufsz})
 		po("%p '%s' LongPoller NewLongPoller just called, returning me. RemoteAddr: '%s'", tunnel, string(tunnel.key[:5]), r.RemoteAddr)
 
 		err = tunnel.Start()

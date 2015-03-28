@@ -43,6 +43,8 @@ import (
 //
 //
 type LongPoller struct {
+	cfg LongPollerConfig
+
 	reqStop           chan bool
 	Done              chan bool
 	ClientPacketRecvd chan *tunnelPacket
@@ -85,23 +87,30 @@ type LongPoller struct {
 	tmLastRecv []time.Time
 }
 
+type LongPollerConfig struct {
+	Dest    Addr
+	PollDur time.Duration
+	Bufsz   int
+}
+
 // Make a new LongPoller as a part of the server (ReverseProxy is the server;
 // PelicanSocksProxy is the client).
 //
 // If a CloseKeyChan receives a key, we return any associated client -> server
 // http request immediately for that key, to facilitate quick shutdown.
 //
-func NewLongPoller(dest Addr, pollDur time.Duration) *LongPoller {
+func NewLongPoller(cfg LongPollerConfig) *LongPoller {
 	key := GenPelicanKey()
-	if dest.Port == 0 {
-		dest.Port = GetAvailPort()
+	if cfg.Dest.Port == 0 {
+		cfg.Dest.Port = GetAvailPort()
 	}
-	if dest.Ip == "" {
-		dest.Ip = "0.0.0.0"
+	if cfg.Dest.Ip == "" {
+		cfg.Dest.Ip = "0.0.0.0"
 	}
-	dest.SetIpPort()
+	cfg.Dest.SetIpPort()
 
 	s := &LongPoller{
+		cfg:                cfg,
 		reqStop:            make(chan bool),
 		Done:               make(chan bool),
 		ClientPacketRecvd:  make(chan *tunnelPacket),
@@ -109,9 +118,9 @@ func NewLongPoller(dest Addr, pollDur time.Duration) *LongPoller {
 		tmLastRecv:         make([]time.Time, 0),
 		name:               "LongPoller",
 		key:                string(key),
-		Dest:               dest,
+		Dest:               cfg.Dest,
 		CloseKeyChan:       make(chan string),
-		pollDur:            pollDur,
+		pollDur:            cfg.PollDur,
 		nextReplySerial:    1,
 		misorderedRequests: make(map[int64]*SerReq),
 		//fastWaitDur:        20 * time.Microsecond, // 0.352s with 1MB buffers

@@ -63,7 +63,7 @@ func TestReverseProxyToUltimateWebServerMock005(t *testing.T) {
 
 	cv.Convey("The PelicanReverseProxy should pass requests downstream to the ultimate webserver\n", t, func() {
 
-		tunnel := NewLongPoller(web.Cfg.Listen, 2*time.Second)
+		tunnel := NewLongPoller(LongPollerConfig{Dest: web.Cfg.Listen, PollDur: 2 * time.Second, Bufsz: 1024 * 1024})
 		err := tunnel.Start()
 		cv.So(err, cv.ShouldEqual, nil)
 		defer tunnel.Stop()
