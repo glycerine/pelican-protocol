@@ -6,7 +6,8 @@ import (
 	capn "github.com/glycerine/go-capnproto"
 )
 
-// concatenate cerealize/{packet.go saveload.go packet.capnp.go}
+// concatenate cerealize/{packet.go saveload.go packet.capnp.go}, then
+// add support for the bool IsRequest, which bambam doesn't handle.
 
 // PelicanPacket describes the packets exchanged between Chaser and LongPoller.
 // We use the underlying (bambam generated) capnproto struct, PelicanPacketCapn,
@@ -60,6 +61,7 @@ func PbodyCapnToGo(src PbodyCapn, dest *Pbody) *Pbody {
 	if dest == nil {
 		dest = &Pbody{}
 	}
+	dest.IsRequest = src.IsRequest()
 	dest.Serialnum = int64(src.Serialnum())
 	dest.Paysize = int64(src.Paysize())
 	dest.AbTm = int64(src.AbTm())
@@ -77,6 +79,7 @@ func PbodyCapnToGo(src PbodyCapn, dest *Pbody) *Pbody {
 
 func PbodyGoToCapn(seg *capn.Segment, src *Pbody) PbodyCapn {
 	dest := AutoNewPbodyCapn(seg)
+	dest.SetIsRequest(src.IsRequest)
 	dest.SetSerialnum(src.Serialnum)
 	dest.SetPaysize(src.Paysize)
 	dest.SetAbTm(src.AbTm)
@@ -119,6 +122,7 @@ func PelicanPacketCapnToGo(src PelicanPacketCapn, dest *PelicanPacket) *PelicanP
 	if dest == nil {
 		dest = &PelicanPacket{}
 	}
+	dest.IsRequest = src.IsRequest()
 	dest.Key = src.Key()
 
 	var n int
@@ -135,6 +139,7 @@ func PelicanPacketCapnToGo(src PelicanPacketCapn, dest *PelicanPacket) *PelicanP
 
 func PelicanPacketGoToCapn(seg *capn.Segment, src *PelicanPacket) PelicanPacketCapn {
 	dest := AutoNewPelicanPacketCapn(seg)
+	dest.SetIsRequest(src.IsRequest)
 	dest.SetKey(src.Key)
 
 	// Body -> PbodyCapn (go slice to capn list)
