@@ -18,16 +18,14 @@ func TestPacketLoadSave053(t *testing.T) {
 		rw := PelicanPacket{
 			IsRequest: true,
 			Key:       "mykey",
-			Body: []Pbody{
-				Pbody{
-					IsRequest: true,
-					Payload:   []byte("wonderful1"),
-				},
-				Pbody{
+			Body: []*Pbody{
+				NewRequestPbody([]byte("wonderful1"), 23),
+				NewResponsePbody([]byte("wonderful1"), 23),
+				&Pbody{
 					IsRequest: true,
 					Payload:   []byte("wonderful2"),
 				},
-				Pbody{
+				&Pbody{
 					IsRequest: false,
 					Payload:   []byte("wonderful3"),
 				},
@@ -38,7 +36,7 @@ func TestPacketLoadSave053(t *testing.T) {
 		rw.Save(&o)
 
 		rw2 := &PelicanPacket{}
-		rw2.Load(&o)
+		rw2.Load(o.Bytes())
 
 		eq := reflect.DeepEqual(&rw, rw2)
 

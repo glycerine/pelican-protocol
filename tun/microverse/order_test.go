@@ -44,10 +44,10 @@ func TestRequestOneMisorderingIsCorrected046(t *testing.T) {
 			respdup: new(bytes.Buffer),
 			request: r2,
 			done:    make(chan bool),
-			key:     "longpoll_test_key",
-			SerReq: SerReq{
-				reqBody:       body2,
-				requestSerial: 2,
+			ppReq: &PelicanPacket{
+				IsRequest: true,
+				Key:       "longpoll_test_key",
+				Body:      []*Pbody{NewRequestPbody(body2, 2)},
 			},
 		}
 
@@ -65,10 +65,10 @@ func TestRequestOneMisorderingIsCorrected046(t *testing.T) {
 			respdup: new(bytes.Buffer),
 			request: r1,
 			done:    make(chan bool),
-			key:     "longpoll_test_key",
-			SerReq: SerReq{
-				reqBody:       body1,
-				requestSerial: 1,
+			ppReq: &PelicanPacket{
+				IsRequest: true,
+				Key:       "longpoll_test_key",
+				Body:      []*Pbody{NewRequestPbody(body1, 1)},
 			},
 		}
 
@@ -246,10 +246,10 @@ func SendHelper(ch chan *tunnelPacket, serialNum int64) *tunnelPacket {
 		respdup: new(bytes.Buffer),
 		request: r2,
 		done:    make(chan bool),
-		key:     "longpoll_test_key",
-		SerReq: SerReq{
-			reqBody:       body2,
-			requestSerial: serialNum,
+		ppReq: &PelicanPacket{
+			IsRequest: true,
+			Key:       "longpoll_test_key",
+			Body:      []*Pbody{NewRequestPbody(body2, serialNum)},
 		},
 	}
 

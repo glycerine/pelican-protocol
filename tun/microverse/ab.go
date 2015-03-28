@@ -56,6 +56,9 @@ type Chaser struct {
 	lastRecvSerialNumberSeen int64
 
 	misorderedReplies map[int64]*SerResp
+
+	NumChasers int // used to be alpha and beta, but now just alpha0..N
+
 }
 
 type ChaserConfig struct {
@@ -143,7 +146,7 @@ func (s *Chaser) ResetActiveTimer() {
 func (s *Chaser) Start() {
 	s.home.Start()
 	s.startAlpha()
-	s.startBeta()
+	s.startBeta(1, "beta")
 }
 
 // Stops without reporting anything on the
@@ -291,7 +294,7 @@ func (s *Chaser) startAlpha() {
 
 // Beta is responsible for the second http
 // connection.
-func (s *Chaser) startBeta() {
+func (s *Chaser) startBeta(id int, name string) {
 	go func() {
 		//po("%p beta at top of startBeta", s)
 		defer func() {
@@ -402,9 +405,6 @@ type ClientHome struct {
 	reqStop chan bool
 	Done    chan bool
 
-	IsAlphaHome chan bool
-	IsBetaHome  chan bool
-
 	alphaArrivesHome chan bool
 	betaArrivesHome  chan bool
 
@@ -450,9 +450,6 @@ func NewClientHome() *ClientHome {
 	s := &ClientHome{
 		reqStop: make(chan bool),
 		Done:    make(chan bool),
-
-		IsAlphaHome: make(chan bool),
-		IsBetaHome:  make(chan bool),
 
 		alphaArrivesHome: make(chan bool),
 		betaArrivesHome:  make(chan bool),
@@ -518,9 +515,6 @@ func (s *ClientHome) Start() {
 		}()
 		for {
 			select {
-
-			case s.IsAlphaHome <- s.alphaHome:
-			case s.IsBetaHome <- s.betaHome:
 
 			case <-s.alphaArrivesHome:
 				now := time.Now()
@@ -673,17 +667,13 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 		reqSer = s.getNextSendSerNum()
 	}
 
-	pack := &tunnelPacket{
-		SerReq: SerReq{
-			requestSerial: reqSer,
-			reqBody:       work,
-		},
-		done: make(chan bool),
+	pack := NewTunnelPacket()
+	pack.resp = NewMockResponseWriter()
+	pack.respdup = new(bytes.Buffer)
+	newPbody := NewRequestPbody(work, reqSer)
+	pack.ppReq.Body = append(pack.ppReq.Body, newPbody)
 
-		resp:    NewMockResponseWriter(),
-		respdup: new(bytes.Buffer),
-	}
-	po("%p Chaser.DoRequestResponse() about to do initial request with packet.requestSerial: %d, work/pack.reqBody: '%s'", s, pack.requestSerial, string(pack.reqBody))
+	po("%p Chaser.DoRequestResponse() about to do initial request with packet.requestSerial: %d, work/pack.reqBody: '%s'", s, reqSer, string(work))
 
 	select {
 	case s.ab2lp <- pack:
@@ -825,6 +815,7 @@ func (s *Chaser) addIfPresent(tryMe *int64, by *bytes.Buffer) bool {
 	return true
 }
 
+// replace with Pbody where Pbody.IsRequest = false, e.g. with , e.g. by call to NewResponsePbody()
 type SerResp struct {
 	response       []byte
 	responseSerial int64 // order the sends with content by serial number

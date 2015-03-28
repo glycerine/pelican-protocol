@@ -35,7 +35,7 @@ type LittlePoll struct {
 
 	// save misordered requests here, to play
 	// them back in the right order.
-	misorderedRequests map[int64]*SerReq
+	misorderedRequests map[int64]*Pbody
 
 	// test reply packet re-ordering in AB by letting
 	// the test request a re-numbering of the reply packets.
@@ -57,7 +57,7 @@ func NewLittlePoll(pollDur time.Duration, dn *Boundary, ab2lp chan *tunnelPacket
 		tmLastRecv:         make([]time.Time, 0),
 		name:               "LittlePoll",
 		nextReplySerial:    1,
-		misorderedRequests: make(map[int64]*SerReq),
+		misorderedRequests: make(map[int64]*Pbody),
 	}
 
 	return s
@@ -129,7 +129,7 @@ func (s *LittlePoll) Start() error {
 
 		// set this to finish re-ordering a packet. Return to nil when
 		// done writing the re-ordered packet.
-		coalescedSequence := make([]*SerReq, 0)
+		coalescedSequence := make([]*Pbody, 0)
 
 		// in cliReq and bytesFromServer, the client is upstream and the
 		// server is downstream. In LittlePoll, we read from the server
@@ -190,19 +190,19 @@ func (s *LittlePoll) Start() error {
 				if nw != len(rser) {
 					panic(fmt.Sprintf("short write: tried to write %d, but wrote %d", len(rser), nw))
 				}
-				oldest.replySerial = rs
+				oldest.ppResp.Serialnum = rs
 
 			} else {
-				oldest.replySerial = -1
+				oldest.ppResp.Serialnum = -1
 			}
 
 			close(oldest.done) // send reply!
 
 			// debug
-			if oldest.replySerial >= 0 {
-				po("sending s.lp2ab <- oldest where oldest.respdup.Bytes() = '%s'. countForUpstream = %d. oldest.requestSerial = %d", string(oldest.respdup.Bytes()[:countForUpstream]), countForUpstream, oldest.requestSerial)
+			if oldest.ppReq.Serialnum >= 0 {
+				po("sending s.lp2ab <- oldest where oldest.respdup.Bytes() = '%s'. countForUpstream = %d. oldest.requestSerial = %d", string(oldest.respdup.Bytes()[:countForUpstream]), countForUpstream, oldest.ppReq.Serialnum)
 			} else {
-				po("sending s.lp2ab <- oldest. countForUpstream = %d. oldest.requestSerial = %d", countForUpstream, oldest.requestSerial)
+				po("sending s.lp2ab <- oldest. countForUpstream = %d. oldest.requestSerial = %d", countForUpstream, oldest.ppResp.Body[0].Serialnum)
 			}
 
 			// little only -- this actually does the send reply in the microverse.
@@ -273,33 +273,34 @@ func (s *LittlePoll) Start() error {
 				// ignore negative serials--they were just for getting
 				// a server initiated reply medium. And we should never send
 				// a zero serial -- they start at 1.
-				if pack.requestSerial > 0 {
+				packReqSn := pack.ppReq.Serialnum
+				if packReqSn > 0 {
 
-					if pack.requestSerial != s.lastRequestSerialNumberSeen+1 {
+					if packReqSn != s.lastRequestSerialNumberSeen+1 {
 						po("detected out of order pack %d, s.lastRequestSerialNumberSeen=%d",
-							pack.requestSerial, s.lastRequestSerialNumberSeen)
+							packReqSn, s.lastRequestSerialNumberSeen)
 						// pack.requestSerial is out of order
 
 						// sanity check
-						_, already := s.misorderedRequests[pack.requestSerial]
+						_, already := s.misorderedRequests[packReqSn]
 						if already {
-							panic(fmt.Sprintf("misordered request detected, but we already saw pack.requestSerial =%d. Misorder because s.lastRequestSerialNumberSeen = %d which is not one less than pack.requestSerial", pack.requestSerial, s.lastRequestSerialNumberSeen))
+							panic(fmt.Sprintf("misordered request detected, but we already saw pack.requestSerial =%d. Misorder because s.lastRequestSerialNumberSeen = %d which is not one less than pack.requestSerial", packReqSn, s.lastRequestSerialNumberSeen))
 						} else {
 							// sanity check that we aren't too far off
-							if pack.requestSerial < s.lastRequestSerialNumberSeen {
-								panic(fmt.Sprintf("duplicate request number from the past: pack.requestSerial =%d < s.lastRequestSerialNumberSeen = %d", pack.requestSerial, s.lastRequestSerialNumberSeen))
+							if packReqSn < s.lastRequestSerialNumberSeen {
+								panic(fmt.Sprintf("duplicate request number from the past: packReqSn =%d < s.lastRequestSerialNumberSeen = %d", packReqSn, s.lastRequestSerialNumberSeen))
 							}
 
 							// the main action in the event of misorder detection:
 							// store the misorder request until later, but still push onto waiters for replies.
-							s.misorderedRequests[pack.requestSerial] = ToSerReq(pack)
+							s.misorderedRequests[packReqSn] = pack.ppReq.Body[0]
 							// length 0 the body so we don't forward downstream out-of-order now.
-							pack.reqBody = pack.reqBody[:0]
+							pack.ppReq.Body = pack.ppReq.Body[:0]
 						}
 					} else {
-						s.lastRequestSerialNumberSeen = pack.requestSerial
+						s.lastRequestSerialNumberSeen = packReqSn
 					}
-				} // end if pack.requestSerial > 0
+				} // end if packReqSn > 0
 
 				// Data or note, we reset the poll timer, so that we only hold
 				// this packet open on this end for at most 'dur' time.
@@ -319,36 +320,47 @@ func (s *LittlePoll) Start() error {
 				// given request.
 				waiters.PushLeft(pack)
 
-				po("%p  LittlePoll, just received ClientPacket with pack.reqBody = '%s'\n", s, string(pack.reqBody))
+				po("%p  LittlePoll, just received ClientPacket with pack.reqBody = '%s'\n", s, string(pack.ppReq.Body[0].Payload))
 
 				// have to both send and receive
 
 				po("%p  just before s.rw.SendToDownCh()", s)
 
 				// we don't need to check if coalescedSequenceByteCount > 0, becuase it
-				// will be > 0 iff len(pack.reqBody) is > 0.
-				if len(pack.reqBody) > 0 {
+				// will be > 0 iff len(pack.pp.Body) is > 0.
+				if len(pack.ppReq.Body) > 0 && len(pack.ppReq.Body[0].Payload) > 0 {
 					// we got data from the client for server!
 					// read from the request body and write to the ResponseWriter
 
 					// append pack to where it belongs
-					coalescedSequence = append(coalescedSequence, ToSerReq(pack))
+					coalescedSequence = append(coalescedSequence, pack.ppReq.Body[0])
 
 					// *goes after* additions: check for any that can go in-order *after* pack
-					lookFor := pack.requestSerial + 1
+					lookFor := packReqSn + 1
 					for {
 						if ooo, ok := s.misorderedRequests[lookFor]; ok {
 							coalescedSequence = append(coalescedSequence, ooo)
 							delete(s.misorderedRequests, lookFor)
-							s.lastRequestSerialNumberSeen = ooo.requestSerial
+							s.lastRequestSerialNumberSeen = ooo.Serialnum
+							// assert(ooo.IsRequest == true)
+							if !ooo.IsRequest {
+								panic("we want ooo.IsRequest == true here so we can assign s.lastRequestSerialNumberSeen = ooo.Serialnum")
+							}
 							lookFor++
 						} else {
 							break
 						}
 					}
 					// coalescedSequence will contain our buffers in order
+					if pack.ppResp == nil {
+						pack.ppResp = &PelicanPacket{
+							IsRequest: false,
+							Key:       pack.ppReq.Key,
+						}
+					}
+					pack.ppResp.Body = coalescedSequence
 
-					writeMe := pack.reqBody
+					writeMe := pack.ppResp.Body[0].Payload
 
 					// if we have more than pack, adjust writeMe to
 					// encompass all buffers that are ready to go in-order now.
@@ -356,7 +368,7 @@ func (s *LittlePoll) Start() error {
 						// now concatenate all together for one send
 						var allTogether bytes.Buffer
 						for _, v := range coalescedSequence {
-							allTogether.Write(v.reqBody)
+							allTogether.Write(v.Payload)
 						}
 						writeMe = allTogether.Bytes()
 					}

@@ -97,10 +97,10 @@ func ReplyToAbHelper(ch chan *tunnelPacket, serialNum int64) *tunnelPacket {
 		respdup: new(bytes.Buffer),
 		request: r,
 		done:    make(chan bool),
-		key:     "longpoll_test_key",
-		SerReq: SerReq{
-			reqBody:       body,
-			requestSerial: serialNum,
+		ppReq: &PelicanPacket{
+			IsRequest: true,
+			Key:       "longpoll_test_key",
+			Body:      []*Pbody{NewRequestPbody(body, serialNum)},
 		},
 	}
 
