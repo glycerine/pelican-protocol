@@ -13,19 +13,88 @@ import (
 // directly to avoid copying Payload around too often. This
 // PelicanPacket struct acts as IDL, and debugging convenience.
 //
-// Either RequestSer must be -1 (for a Response) or ResponseSer must be -1 (for a request).
+// The Serial numbers should start from at
+// least 1; 0 is an invalid serial number.
+
 //
+// PelicanPacket: the packets exchanged between Chaser and LongPoller.
+// We use the underlying (bambam generated) PelicanPacketCapn capnproto
+// struct directly to avoid copying Payload around too often.
 type PelicanPacket struct {
-	RequestSer   int64  `capid:"0"` // -1 if this is a response
-	ResponseSer  int64  `capid:"1"` // -1 if this is a request
-	Paysize      int64  `capid:"2"`
-	RequestAbTm  int64  `capid:"3"`
-	RequestLpTm  int64  `capid:"4"`
-	ResponseLpTm int64  `capid:"5"`
-	ResponseAbTm int64  `capid:"6"`
-	Key          string `capid:"7"`
-	Paymac       []byte `capid:"8"`
-	Payload      []byte `capid:"9"`
+	// if not Request, then is Reply
+	IsRequest bool    `capid:"0"`
+	Key       string  `capid:"1"`
+	Body      []Pbody `capid:"2"`
+}
+
+type Pbody struct {
+	IsRequest bool  `capid:"0"`
+	Serialnum int64 `capid:"1"`
+	Paysize   int64 `capid:"2"`
+	AbTm      int64 `capid:"3"`
+	LpTm      int64 `capid:"4"`
+
+	Paymac  [64]byte `capid:"5"`
+	Payload []byte   `capid:"6"`
+}
+
+func (s *Pbody) Save(w io.Writer) error {
+	seg := capn.NewBuffer(nil)
+	PbodyGoToCapn(seg, s)
+	_, err := seg.WriteTo(w)
+	return err
+}
+
+func (s *Pbody) Load(r io.Reader) error {
+	capMsg, err := capn.ReadFromStream(r, nil)
+	if err != nil {
+		//panic(fmt.Errorf("capn.ReadFromStream error: %s", err))
+		return err
+	}
+	z := ReadRootPbodyCapn(capMsg)
+	PbodyCapnToGo(z, s)
+	return nil
+}
+
+func PbodyCapnToGo(src PbodyCapn, dest *Pbody) *Pbody {
+	if dest == nil {
+		dest = &Pbody{}
+	}
+	dest.Serialnum = int64(src.Serialnum())
+	dest.Paysize = int64(src.Paysize())
+	dest.AbTm = int64(src.AbTm())
+	dest.LpTm = int64(src.LpTm())
+
+	// Paymac
+	copy(dest.Paymac[:], []byte(src.Paymac().ToArray()))
+
+	// Payload
+	// may be dangerous: refer to underlying segment to avoid a copy
+	dest.Payload = src.Payload().ToArray()
+
+	return dest
+}
+
+func PbodyGoToCapn(seg *capn.Segment, src *Pbody) PbodyCapn {
+	dest := AutoNewPbodyCapn(seg)
+	dest.SetSerialnum(src.Serialnum)
+	dest.SetPaysize(src.Paysize)
+	dest.SetAbTm(src.AbTm)
+	dest.SetLpTm(src.LpTm)
+
+	mylist1 := seg.NewUInt8List(len(src.Paymac))
+	for i := range src.Paymac {
+		mylist1.Set(i, uint8(src.Paymac[i]))
+	}
+	dest.SetPaymac(mylist1)
+
+	mylist2 := seg.NewUInt8List(len(src.Payload))
+	for i := range src.Payload {
+		mylist2.Set(i, uint8(src.Payload[i]))
+	}
+	dest.SetPayload(mylist2)
+
+	return dest
 }
 
 func (s *PelicanPacket) Save(w io.Writer) error {
@@ -50,29 +119,15 @@ func PelicanPacketCapnToGo(src PelicanPacketCapn, dest *PelicanPacket) *PelicanP
 	if dest == nil {
 		dest = &PelicanPacket{}
 	}
-	dest.RequestSer = int64(src.RequestSer())
-	dest.ResponseSer = int64(src.ResponseSer())
-	dest.Paysize = int64(src.Paysize())
-	dest.RequestAbTm = int64(src.RequestAbTm())
-	dest.RequestLpTm = int64(src.RequestLpTm())
-	dest.ResponseLpTm = int64(src.ResponseLpTm())
-	dest.ResponseAbTm = int64(src.ResponseAbTm())
 	dest.Key = src.Key()
 
 	var n int
 
-	// Paymac
-	n = src.Paymac().Len()
-	dest.Paymac = make([]byte, n)
+	// Body
+	n = src.Body().Len()
+	dest.Body = make([]Pbody, n)
 	for i := 0; i < n; i++ {
-		dest.Paymac[i] = byte(src.Paymac().At(i))
-	}
-
-	// Payload
-	n = src.Payload().Len()
-	dest.Payload = make([]byte, n)
-	for i := 0; i < n; i++ {
-		dest.Payload[i] = byte(src.Payload().At(i))
+		dest.Body[i] = *PbodyCapnToGo(src.Body().At(i), nil)
 	}
 
 	return dest
@@ -80,26 +135,19 @@ func PelicanPacketCapnToGo(src PelicanPacketCapn, dest *PelicanPacket) *PelicanP
 
 func PelicanPacketGoToCapn(seg *capn.Segment, src *PelicanPacket) PelicanPacketCapn {
 	dest := AutoNewPelicanPacketCapn(seg)
-	dest.SetRequestSer(src.RequestSer)
-	dest.SetResponseSer(src.ResponseSer)
-	dest.SetPaysize(src.Paysize)
-	dest.SetRequestAbTm(src.RequestAbTm)
-	dest.SetRequestLpTm(src.RequestLpTm)
-	dest.SetResponseLpTm(src.ResponseLpTm)
-	dest.SetResponseAbTm(src.ResponseAbTm)
 	dest.SetKey(src.Key)
 
-	mylist1 := seg.NewUInt8List(len(src.Paymac))
-	for i := range src.Paymac {
-		mylist1.Set(i, uint8(src.Paymac[i]))
+	// Body -> PbodyCapn (go slice to capn list)
+	if len(src.Body) > 0 {
+		typedList := NewPbodyCapnList(seg, len(src.Body))
+		plist := capn.PointerList(typedList)
+		i := 0
+		for _, ele := range src.Body {
+			plist.Set(i, capn.Object(PbodyGoToCapn(seg, &ele)))
+			i++
+		}
+		dest.SetBody(typedList)
 	}
-	dest.SetPaymac(mylist1)
-
-	mylist2 := seg.NewUInt8List(len(src.Payload))
-	for i := range src.Payload {
-		mylist2.Set(i, uint8(src.Payload[i]))
-	}
-	dest.SetPayload(mylist2)
 
 	return dest
 }
@@ -120,47 +168,91 @@ func UInt8ListToSliceByte(p capn.UInt8List) []byte {
 	return v
 }
 
+func SlicePbodyToPbodyCapnList(seg *capn.Segment, m []Pbody) PbodyCapn_List {
+	lst := NewPbodyCapnList(seg, len(m))
+	for i := range m {
+		lst.Set(i, PbodyGoToCapn(seg, &m[i]))
+	}
+	return lst
+}
+
+func PbodyCapnListToSlicePbody(p PbodyCapn_List) []Pbody {
+	v := make([]Pbody, p.Len())
+	for i := range v {
+		PbodyCapnToGo(p.At(i), &v[i])
+	}
+	return v
+}
+
+type PbodyCapn capn.Struct
+
+func NewPbodyCapn(s *capn.Segment) PbodyCapn      { return PbodyCapn(s.NewStruct(40, 2)) }
+func NewRootPbodyCapn(s *capn.Segment) PbodyCapn  { return PbodyCapn(s.NewRootStruct(40, 2)) }
+func AutoNewPbodyCapn(s *capn.Segment) PbodyCapn  { return PbodyCapn(s.NewStructAR(40, 2)) }
+func ReadRootPbodyCapn(s *capn.Segment) PbodyCapn { return PbodyCapn(s.Root(0).ToStruct()) }
+func (s PbodyCapn) IsRequest() bool               { return capn.Struct(s).Get1(0) }
+func (s PbodyCapn) SetIsRequest(v bool)           { capn.Struct(s).Set1(0, v) }
+func (s PbodyCapn) Serialnum() int64              { return int64(capn.Struct(s).Get64(8)) }
+func (s PbodyCapn) SetSerialnum(v int64)          { capn.Struct(s).Set64(8, uint64(v)) }
+func (s PbodyCapn) Paysize() int64                { return int64(capn.Struct(s).Get64(16)) }
+func (s PbodyCapn) SetPaysize(v int64)            { capn.Struct(s).Set64(16, uint64(v)) }
+func (s PbodyCapn) AbTm() int64                   { return int64(capn.Struct(s).Get64(24)) }
+func (s PbodyCapn) SetAbTm(v int64)               { capn.Struct(s).Set64(24, uint64(v)) }
+func (s PbodyCapn) LpTm() int64                   { return int64(capn.Struct(s).Get64(32)) }
+func (s PbodyCapn) SetLpTm(v int64)               { capn.Struct(s).Set64(32, uint64(v)) }
+func (s PbodyCapn) Paymac() capn.UInt8List        { return capn.UInt8List(capn.Struct(s).GetObject(0)) }
+func (s PbodyCapn) SetPaymac(v capn.UInt8List)    { capn.Struct(s).SetObject(0, capn.Object(v)) }
+func (s PbodyCapn) Payload() capn.UInt8List       { return capn.UInt8List(capn.Struct(s).GetObject(1)) }
+func (s PbodyCapn) SetPayload(v capn.UInt8List)   { capn.Struct(s).SetObject(1, capn.Object(v)) }
+
+// capn.JSON_enabled == false so we stub MarshallJSON().
+func (s PbodyCapn) MarshalJSON() (bs []byte, err error) { return }
+
+type PbodyCapn_List capn.PointerList
+
+func NewPbodyCapnList(s *capn.Segment, sz int) PbodyCapn_List {
+	return PbodyCapn_List(s.NewCompositeList(40, 2, sz))
+}
+func (s PbodyCapn_List) Len() int           { return capn.PointerList(s).Len() }
+func (s PbodyCapn_List) At(i int) PbodyCapn { return PbodyCapn(capn.PointerList(s).At(i).ToStruct()) }
+func (s PbodyCapn_List) ToArray() []PbodyCapn {
+	n := s.Len()
+	a := make([]PbodyCapn, n)
+	for i := 0; i < n; i++ {
+		a[i] = s.At(i)
+	}
+	return a
+}
+func (s PbodyCapn_List) Set(i int, item PbodyCapn) { capn.PointerList(s).Set(i, capn.Object(item)) }
+
 type PelicanPacketCapn capn.Struct
 
 func NewPelicanPacketCapn(s *capn.Segment) PelicanPacketCapn {
-	return PelicanPacketCapn(s.NewStruct(56, 3))
+	return PelicanPacketCapn(s.NewStruct(8, 2))
 }
 func NewRootPelicanPacketCapn(s *capn.Segment) PelicanPacketCapn {
-	return PelicanPacketCapn(s.NewRootStruct(56, 3))
+	return PelicanPacketCapn(s.NewRootStruct(8, 2))
 }
 func AutoNewPelicanPacketCapn(s *capn.Segment) PelicanPacketCapn {
-	return PelicanPacketCapn(s.NewStructAR(56, 3))
+	return PelicanPacketCapn(s.NewStructAR(8, 2))
 }
 func ReadRootPelicanPacketCapn(s *capn.Segment) PelicanPacketCapn {
 	return PelicanPacketCapn(s.Root(0).ToStruct())
 }
-func (s PelicanPacketCapn) RequestSer() int64          { return int64(capn.Struct(s).Get64(0)) }
-func (s PelicanPacketCapn) SetRequestSer(v int64)      { capn.Struct(s).Set64(0, uint64(v)) }
-func (s PelicanPacketCapn) ResponseSer() int64         { return int64(capn.Struct(s).Get64(8)) }
-func (s PelicanPacketCapn) SetResponseSer(v int64)     { capn.Struct(s).Set64(8, uint64(v)) }
-func (s PelicanPacketCapn) Paysize() int64             { return int64(capn.Struct(s).Get64(16)) }
-func (s PelicanPacketCapn) SetPaysize(v int64)         { capn.Struct(s).Set64(16, uint64(v)) }
-func (s PelicanPacketCapn) RequestAbTm() int64         { return int64(capn.Struct(s).Get64(24)) }
-func (s PelicanPacketCapn) SetRequestAbTm(v int64)     { capn.Struct(s).Set64(24, uint64(v)) }
-func (s PelicanPacketCapn) RequestLpTm() int64         { return int64(capn.Struct(s).Get64(32)) }
-func (s PelicanPacketCapn) SetRequestLpTm(v int64)     { capn.Struct(s).Set64(32, uint64(v)) }
-func (s PelicanPacketCapn) ResponseLpTm() int64        { return int64(capn.Struct(s).Get64(40)) }
-func (s PelicanPacketCapn) SetResponseLpTm(v int64)    { capn.Struct(s).Set64(40, uint64(v)) }
-func (s PelicanPacketCapn) ResponseAbTm() int64        { return int64(capn.Struct(s).Get64(48)) }
-func (s PelicanPacketCapn) SetResponseAbTm(v int64)    { capn.Struct(s).Set64(48, uint64(v)) }
-func (s PelicanPacketCapn) Key() string                { return capn.Struct(s).GetObject(0).ToText() }
-func (s PelicanPacketCapn) SetKey(v string)            { capn.Struct(s).SetObject(0, s.Segment.NewText(v)) }
-func (s PelicanPacketCapn) Paymac() capn.UInt8List     { return capn.UInt8List(capn.Struct(s).GetObject(1)) }
-func (s PelicanPacketCapn) SetPaymac(v capn.UInt8List) { capn.Struct(s).SetObject(1, capn.Object(v)) }
-func (s PelicanPacketCapn) Payload() capn.UInt8List {
-	return capn.UInt8List(capn.Struct(s).GetObject(2))
-}
-func (s PelicanPacketCapn) SetPayload(v capn.UInt8List) { capn.Struct(s).SetObject(2, capn.Object(v)) }
+func (s PelicanPacketCapn) IsRequest() bool          { return capn.Struct(s).Get1(0) }
+func (s PelicanPacketCapn) SetIsRequest(v bool)      { capn.Struct(s).Set1(0, v) }
+func (s PelicanPacketCapn) Key() string              { return capn.Struct(s).GetObject(0).ToText() }
+func (s PelicanPacketCapn) SetKey(v string)          { capn.Struct(s).SetObject(0, s.Segment.NewText(v)) }
+func (s PelicanPacketCapn) Body() PbodyCapn_List     { return PbodyCapn_List(capn.Struct(s).GetObject(1)) }
+func (s PelicanPacketCapn) SetBody(v PbodyCapn_List) { capn.Struct(s).SetObject(1, capn.Object(v)) }
+
+// capn.JSON_enabled == false so we stub MarshallJSON().
+func (s PelicanPacketCapn) MarshalJSON() (bs []byte, err error) { return }
 
 type PelicanPacketCapn_List capn.PointerList
 
 func NewPelicanPacketCapnList(s *capn.Segment, sz int) PelicanPacketCapn_List {
-	return PelicanPacketCapn_List(s.NewCompositeList(56, 3, sz))
+	return PelicanPacketCapn_List(s.NewCompositeList(8, 2, sz))
 }
 func (s PelicanPacketCapn_List) Len() int { return capn.PointerList(s).Len() }
 func (s PelicanPacketCapn_List) At(i int) PelicanPacketCapn {

@@ -6,6 +6,65 @@ import (
 	capn "github.com/glycerine/go-capnproto"
 )
 
+func (s *Pbody) Save(w io.Writer) error {
+	seg := capn.NewBuffer(nil)
+	PbodyGoToCapn(seg, s)
+	_, err := seg.WriteTo(w)
+	return err
+}
+
+func (s *Pbody) Load(r io.Reader) error {
+	capMsg, err := capn.ReadFromStream(r, nil)
+	if err != nil {
+		//panic(fmt.Errorf("capn.ReadFromStream error: %s", err))
+		return err
+	}
+	z := ReadRootPbodyCapn(capMsg)
+	PbodyCapnToGo(z, s)
+	return nil
+}
+
+func PbodyCapnToGo(src PbodyCapn, dest *Pbody) *Pbody {
+	if dest == nil {
+		dest = &Pbody{}
+	}
+	dest.Serialnum = int64(src.Serialnum())
+	dest.Paysize = int64(src.Paysize())
+	dest.AbTm = int64(src.AbTm())
+	dest.LpTm = int64(src.LpTm())
+
+	// Paymac
+	copy(dest.Paymac[:], []byte(src.Paymac().ToArray()))
+
+	// Payload
+	// may be dangerous: refer to underlying segment to avoid a copy
+	dest.Payload = src.Payload().ToArray()
+
+	return dest
+}
+
+func PbodyGoToCapn(seg *capn.Segment, src *Pbody) PbodyCapn {
+	dest := AutoNewPbodyCapn(seg)
+	dest.SetSerialnum(src.Serialnum)
+	dest.SetPaysize(src.Paysize)
+	dest.SetAbTm(src.AbTm)
+	dest.SetLpTm(src.LpTm)
+
+	mylist1 := seg.NewUInt8List(len(src.Paymac))
+	for i := range src.Paymac {
+		mylist1.Set(i, uint8(src.Paymac[i]))
+	}
+	dest.SetPaymac(mylist1)
+
+	mylist2 := seg.NewUInt8List(len(src.Payload))
+	for i := range src.Payload {
+		mylist2.Set(i, uint8(src.Payload[i]))
+	}
+	dest.SetPayload(mylist2)
+
+	return dest
+}
+
 func (s *PelicanPacket) Save(w io.Writer) error {
 	seg := capn.NewBuffer(nil)
 	PelicanPacketGoToCapn(seg, s)
@@ -28,29 +87,15 @@ func PelicanPacketCapnToGo(src PelicanPacketCapn, dest *PelicanPacket) *PelicanP
 	if dest == nil {
 		dest = &PelicanPacket{}
 	}
-	dest.RequestSer = int64(src.RequestSer())
-	dest.ResponseSer = int64(src.ResponseSer())
-	dest.Paysize = int64(src.Paysize())
-	dest.RequestAbTm = int64(src.RequestAbTm())
-	dest.RequestLpTm = int64(src.RequestLpTm())
-	dest.ResponseLpTm = int64(src.ResponseLpTm())
-	dest.ResponseAbTm = int64(src.ResponseAbTm())
 	dest.Key = src.Key()
 
 	var n int
 
-	// Paymac
-	n = src.Paymac().Len()
-	dest.Paymac = make([]byte, n)
+	// Body
+	n = src.Body().Len()
+	dest.Body = make([]Pbody, n)
 	for i := 0; i < n; i++ {
-		dest.Paymac[i] = byte(src.Paymac().At(i))
-	}
-
-	// Payload
-	n = src.Payload().Len()
-	dest.Payload = make([]byte, n)
-	for i := 0; i < n; i++ {
-		dest.Payload[i] = byte(src.Payload().At(i))
+		dest.Body[i] = *PbodyCapnToGo(src.Body().At(i), nil)
 	}
 
 	return dest
@@ -58,26 +103,19 @@ func PelicanPacketCapnToGo(src PelicanPacketCapn, dest *PelicanPacket) *PelicanP
 
 func PelicanPacketGoToCapn(seg *capn.Segment, src *PelicanPacket) PelicanPacketCapn {
 	dest := AutoNewPelicanPacketCapn(seg)
-	dest.SetRequestSer(src.RequestSer)
-	dest.SetResponseSer(src.ResponseSer)
-	dest.SetPaysize(src.Paysize)
-	dest.SetRequestAbTm(src.RequestAbTm)
-	dest.SetRequestLpTm(src.RequestLpTm)
-	dest.SetResponseLpTm(src.ResponseLpTm)
-	dest.SetResponseAbTm(src.ResponseAbTm)
 	dest.SetKey(src.Key)
 
-	mylist1 := seg.NewUInt8List(len(src.Paymac))
-	for i := range src.Paymac {
-		mylist1.Set(i, uint8(src.Paymac[i]))
+	// Body -> PbodyCapn (go slice to capn list)
+	if len(src.Body) > 0 {
+		typedList := NewPbodyCapnList(seg, len(src.Body))
+		plist := capn.PointerList(typedList)
+		i := 0
+		for _, ele := range src.Body {
+			plist.Set(i, capn.Object(PbodyGoToCapn(seg, &ele)))
+			i++
+		}
+		dest.SetBody(typedList)
 	}
-	dest.SetPaymac(mylist1)
-
-	mylist2 := seg.NewUInt8List(len(src.Payload))
-	for i := range src.Payload {
-		mylist2.Set(i, uint8(src.Payload[i]))
-	}
-	dest.SetPayload(mylist2)
 
 	return dest
 }
@@ -94,6 +132,22 @@ func UInt8ListToSliceByte(p capn.UInt8List) []byte {
 	v := make([]byte, p.Len())
 	for i := range v {
 		v[i] = byte(p.At(i))
+	}
+	return v
+}
+
+func SlicePbodyToPbodyCapnList(seg *capn.Segment, m []Pbody) PbodyCapn_List {
+	lst := NewPbodyCapnList(seg, len(m))
+	for i := range m {
+		lst.Set(i, PbodyGoToCapn(seg, &m[i]))
+	}
+	return lst
+}
+
+func PbodyCapnListToSlicePbody(p PbodyCapn_List) []Pbody {
+	v := make([]Pbody, p.Len())
+	for i := range v {
+		PbodyCapnToGo(p.At(i), &v[i])
 	}
 	return v
 }
