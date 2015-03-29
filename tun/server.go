@@ -72,6 +72,12 @@ func NewReverseProxy(cfg ReverseProxyConfig) *ReverseProxy {
 	}
 	cfg.Dest.SetIpPort()
 
+	po("NewReverseProxy() originally, cfg.Bufsz = %d", cfg.Bufsz)
+	if cfg.Bufsz == 0 {
+		cfg.Bufsz = DefaultChaserConfig().BufSize
+		po("NewReverseProxy(): using cfg.Bufsz = %d, from DefaultChaserConfig().BufSize", cfg.Bufsz)
+	}
+
 	fmt.Printf("in NewReverseProxy, cfg = '%#v'\n", cfg)
 
 	return &ReverseProxy{
