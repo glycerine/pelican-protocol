@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/glycerine/go-goon"
 )
 
 type LittlePoll struct {
@@ -17,8 +19,8 @@ type LittlePoll struct {
 
 	down *Boundary
 
-	ab2lp chan *tunnelPacket
-	lp2ab chan *tunnelPacket
+	ab2lp chan *PelicanPacket
+	lp2ab chan *PelicanPacket
 
 	recvCount int
 
@@ -35,7 +37,7 @@ type LittlePoll struct {
 
 	// save misordered requests here, to play
 	// them back in the right order.
-	misorderedRequests map[int64]*Pbody
+	misorderedRequests map[int64]*PelicanPacket
 
 	// test reply packet re-ordering in AB by letting
 	// the test request a re-numbering of the reply packets.
@@ -44,7 +46,7 @@ type LittlePoll struct {
 	forceReplySn []int64
 }
 
-func NewLittlePoll(pollDur time.Duration, dn *Boundary, ab2lp chan *tunnelPacket, lp2ab chan *tunnelPacket) *LittlePoll {
+func NewLittlePoll(pollDur time.Duration, dn *Boundary, ab2lp chan *PelicanPacket, lp2ab chan *PelicanPacket) *LittlePoll {
 
 	s := &LittlePoll{
 		reqStop:            make(chan bool),
@@ -57,7 +59,7 @@ func NewLittlePoll(pollDur time.Duration, dn *Boundary, ab2lp chan *tunnelPacket
 		tmLastRecv:         make([]time.Time, 0),
 		name:               "LittlePoll",
 		nextReplySerial:    1,
-		misorderedRequests: make(map[int64]*Pbody),
+		misorderedRequests: make(map[int64]*PelicanPacket),
 	}
 
 	return s
@@ -125,7 +127,8 @@ func (s *LittlePoll) Start() error {
 			longPollTimeUp.Stop()
 		}
 
-		var pack *tunnelPacket
+		//var pack *tunnelPacket
+		var pelpack *PelicanPacket
 
 		// set this to finish re-ordering a packet. Return to nil when
 		// done writing the re-ordered packet.
@@ -142,6 +145,7 @@ func (s *LittlePoll) Start() error {
 		waiters := NewRequestFifo(2)
 
 		var countForUpstream int64
+		var wasOutOfOrder bool
 
 		curReply := make([]byte, 0, 4096)
 
@@ -178,6 +182,8 @@ func (s *LittlePoll) Start() error {
 					panic(err)
 				}
 
+				po("saving to oldest.respdup:")
+				goon.Dump(oldest.ppResp)
 				err = oldest.ppResp.Save(oldest.respdup)
 				if err != nil {
 					panic(err)
@@ -190,17 +196,18 @@ func (s *LittlePoll) Start() error {
 			close(oldest.done) // send reply!
 
 			// debug
-			if oldest.ppReq.Serialnum >= 0 {
+			if oldest.ppResp.Serialnum >= 0 {
 				po("sending s.lp2ab <- oldest where oldest.respdup.Bytes() = '%s'. countForUpstream = %d. oldest.requestSerial = %d", string(oldest.respdup.Bytes()[:countForUpstream]), countForUpstream, oldest.ppReq.Serialnum)
 			} else {
-				if oldest.ppReq != nil && len(oldest.ppReq.Body) > 0 {
-					po("sending s.lp2ab <- oldest. countForUpstream = %d. oldest.requestSerial = %d", countForUpstream, oldest.ppResp.Body[0].Serialnum)
+				if oldest.ppResp != nil && len(oldest.ppResp.Body) > 0 {
+					po("sending s.lp2ab <- oldest. countForUpstream = %d. oldest.requestSerial = %d", countForUpstream, oldest.ppResp.Serialnum)
 				}
 			}
 
 			// little only -- this actually does the send reply in the microverse.
 			select {
-			case s.lp2ab <- oldest:
+			case s.lp2ab <- oldest.ppResp:
+				po("little sent oldest.ppResp on s.lp2ab, with key = '%s'", oldest.ppResp.Key)
 				//okay
 			case <-s.reqStop:
 				// shutting down
@@ -258,7 +265,9 @@ func (s *LittlePoll) Start() error {
 					return
 				}
 
-			case pack = <-s.ab2lp:
+			case pelpack = <-s.ab2lp:
+				pelpack.SetLpTm()
+				wasOutOfOrder = false // assume okay order at first.
 				s.recvCount++
 				s.NoteTmRecv()
 				po("%p  longPoller got client packet! recvCount now: %d", s, s.recvCount)
@@ -266,7 +275,7 @@ func (s *LittlePoll) Start() error {
 				// ignore negative serials--they were just for getting
 				// a server initiated reply medium. And we should never send
 				// a zero serial -- they start at 1.
-				packReqSn := pack.ppReq.Serialnum
+				packReqSn := pelpack.Serialnum
 				po("%p  longPoller got client packet! recvCount now: %d", s, s.recvCount)
 
 				if packReqSn == 0 {
@@ -276,7 +285,7 @@ func (s *LittlePoll) Start() error {
 				if packReqSn > 0 {
 
 					if packReqSn != s.lastRequestSerialNumberSeen+1 {
-						po("detected out of order pack %d, s.lastRequestSerialNumberSeen=%d",
+						po("detected out of order pelpack %d, s.lastRequestSerialNumberSeen=%d",
 							packReqSn, s.lastRequestSerialNumberSeen)
 						// pack.requestSerial is out of order
 
@@ -292,9 +301,9 @@ func (s *LittlePoll) Start() error {
 
 							// the main action in the event of misorder detection:
 							// store the misorder request until later, but still push onto waiters for replies.
-							s.misorderedRequests[packReqSn] = pack.ppReq.Body[0]
-							// length 0 the body so we don't forward downstream out-of-order now.
-							pack.ppReq.Body = pack.ppReq.Body[:0]
+							s.misorderedRequests[packReqSn] = pelpack
+							//  make note so we don't forward downstream out-of-order now.
+							wasOutOfOrder = true
 						}
 					} else {
 						s.lastRequestSerialNumberSeen = packReqSn
@@ -317,7 +326,7 @@ func (s *LittlePoll) Start() error {
 				// first-Request-in-first-Response-out, although obviously not
 				// necessarily waiting to transport the actual downstream response to any
 				// given request.
-				waiters.PushLeft(pack)
+				waiters.PushLeft(pelpack)
 
 				if pack.ppReq != nil && len(pack.ppReq.Body) > 0 {
 					po("%p  LittlePoll, just received ClientPacket with pack.ppReq.Body[0].Payload = '%s'\n", s, string(pack.ppReq.Body[0].Payload))
@@ -329,7 +338,7 @@ func (s *LittlePoll) Start() error {
 
 				// we don't need to check if coalescedSequenceByteCount > 0, becuase it
 				// will be > 0 iff len(pack.pp.Body) is > 0.
-				if len(pack.ppReq.Body) > 0 && len(pack.ppReq.Body[0].Payload) > 0 {
+				if !wasOutOfOrder && len(pelpack.Body) > 0 && len(pelpack.Body[0].Payload) > 0 {
 					// we got data from the client for server!
 					// read from the request body and write to the ResponseWriter
 
@@ -398,13 +407,6 @@ func (s *LittlePoll) Start() error {
 				//po("%p  just after s.rw.SendToDownCh()", s)
 
 				// transfer data from server to client
-
-				// get the oldest packet, and reply using that. http requests
-				// get serviced mostly FIFO this way, and our long-poll
-				// timer reflects the time since the most recent packet
-				// arrival.
-				// comment out here, move above
-				//waiters.PushLeft(pack)
 
 				// TODO: instead of fixed 10msec, this threshold should be
 				// 1x the one-way-trip time from the client-to-server, since that is

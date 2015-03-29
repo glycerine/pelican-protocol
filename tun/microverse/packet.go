@@ -63,6 +63,19 @@ func (pp *PelicanPacket) SetSerial(ser int64) {
 	}
 }
 
+func (pp *PelicanPacket) SetAbTm() {
+	now := time.Now().UnixNano()
+	for _, v := range pp.Body {
+		v.AbTm = now
+	}
+}
+func (pp *PelicanPacket) SetLpTm() {
+	now := time.Now().UnixNano()
+	for _, v := range pp.Body {
+		v.LpTm = now
+	}
+}
+
 type Pbody struct {
 	IsRequest bool  `capid:"0"`
 	Serialnum int64 `capid:"1"`
@@ -83,6 +96,13 @@ func newPbody(isRequest bool, payload []byte, ser int64) *Pbody {
 		Serialnum: ser,
 		AbTm:      time.Now().UnixNano(),
 	}
+}
+
+func (pb *Pbody) Verifies() bool {
+	if pb.Paymac == sha3.Sum512(pb.Payload) && pb.Paysize == len(pb.Payload) {
+		return true
+	}
+	return false
 }
 
 // auto-generated code below (from bambam and capnpc-go), plus

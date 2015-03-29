@@ -6,6 +6,8 @@ import (
 	"math/rand"
 	"sync"
 	"time"
+
+	"github.com/glycerine/go-goon"
 )
 
 type Chaser struct {
@@ -43,7 +45,7 @@ type Chaser struct {
 	lastActiveTm        time.Time
 	mutTimer            sync.Mutex
 
-	lp2ab chan *tunnelPacket
+	lp2ab chan *PelicanPacket
 	ab2lp chan *tunnelPacket
 
 	tmLastRecv []time.Time
@@ -55,7 +57,7 @@ type Chaser struct {
 	nextSendSerialNumber     int64
 	lastRecvSerialNumberSeen int64
 
-	misorderedReplies map[int64]*SerResp
+	misorderedReplies map[int64]*PelicanPacket
 
 	NumChasers int // used to be alpha and beta, but now just alpha0..N
 
@@ -98,7 +100,7 @@ func NewChaser(
 	incoming chan []byte,
 	repliesHere chan []byte,
 	ab2lp chan *tunnelPacket,
-	lp2ab chan *tunnelPacket) *Chaser {
+	lp2ab chan *PelicanPacket) *Chaser {
 
 	SetChaserConfigDefaults(&cfg)
 
@@ -127,7 +129,7 @@ func NewChaser(
 		hist:                 NewHistoryLog("Chaser"),
 		name:                 "Chaser",
 		nextSendSerialNumber: 1,
-		misorderedReplies:    make(map[int64]*SerResp),
+		misorderedReplies:    make(map[int64]*PelicanPacket),
 	}
 
 	// always closed
@@ -373,6 +375,7 @@ func (s *Chaser) startBeta(id int, name string) {
 					if !s.addIfPresent(&tryMe, by) {
 						break
 					}
+					tryMe++
 				}
 				sendMe := by.Bytes()
 
@@ -667,6 +670,7 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 		reqSer = s.getNextSendSerNum()
 	}
 
+	var ppResp *PelicanPacket
 	pack := NewTunnelPacket(reqSer, -1, s.key)
 	pack.resp = NewMockResponseWriter()
 	pack.respdup = new(bytes.Buffer)
@@ -684,33 +688,16 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 	}
 
 	select {
-	case pack := <-s.lp2ab:
-		fmt.Printf("pack.respdup = %p\n", pack.respdup)
-		ppResp := &PelicanPacket{}
-		ppResp.Load(pack.respdup.Bytes())
-		//body := pack.respdup.Bytes()
+	case ppResp = <-s.lp2ab:
+		fmt.Printf("\n\n ab.go: pack <- s.lp2ab got:\n")
+		goon.Dump(ppResp)
+
+		ppResp.SetAbTm()
 
 		recvSerial = -1 // default for empty bytes in body
 		//		if len(body) >= SerialLen {
 		if len(ppResp.Body) > 0 {
-			if len(ppResp.Body) == 1 {
-				back = ppResp.Body[0].Payload
-			} else {
-				n := 0
-				for i := 0; i < len(ppResp.Body); i++ {
-					n += len(ppResp.Body[i].Payload)
-					if int64(len(ppResp.Body[i].Payload)) != ppResp.Body[i].Paysize {
-						panic(fmt.Sprintf("len(ppResp.Body[i].Payload) != ppResp.Body[i].Paysize; %d != %d",
-							len(ppResp.Body[i].Payload),
-							ppResp.Body[i].Paysize))
-					}
-				}
-				back = make([]byte, n)
-				wrote := 0
-				for i := 0; i < len(ppResp.Body); i++ {
-					wrote += copy(back[wrote:], ppResp.Body[i].Payload)
-				}
-			}
+			recvSerial = ppResp.Serialnum
 		}
 
 		po("DoRequestResponse got from lp2ab: '%s', with recvSerial=%d", string(back), ppResp.Serialnum)
@@ -723,19 +710,43 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 	if recvSerial >= 0 {
 		// adjust s.lastRecvSerialNumberSeen and s.misorderedReplies under lock
 		s.mut.Lock()
-		defer s.mut.Unlock()
+		// do 2x manually below instead of: defer s.mut.Unlock()
 
 		if recvSerial != s.lastRecvSerialNumberSeen+1 {
 
-			s.misorderedReplies[recvSerial] = &SerResp{
-				response:       back,
-				responseSerial: recvSerial,
-				tm:             time.Now(),
-			}
+			s.misorderedReplies[recvSerial] = ppResp
 			// wait to send upstream: indicate this by giving back 0 length.
 			back = back[:0]
+			s.mut.Unlock()
 		} else {
 			s.lastRecvSerialNumberSeen++
+			s.mut.Unlock()
+
+			// okay to reply in back with this data:
+			if len(ppResp.Body) == 1 {
+				back = ppResp.Body[0].Payload
+			} else {
+				// put together the multiple parts in Body
+				n := 0
+				for i := 0; i < len(ppResp.Body); i++ {
+					n += len(ppResp.Body[i].Payload)
+					// sanity checks:
+					if int64(len(ppResp.Body[i].Payload)) != ppResp.Body[i].Paysize {
+						panic(fmt.Sprintf("len(ppResp.Body[i].Payload) != ppResp.Body[i].Paysize; %d != %d",
+							len(ppResp.Body[i].Payload),
+							ppResp.Body[i].Paysize))
+					}
+					if !ppResp.Body[i].Verifies() {
+						panic(fmt.Sprintf("body %d '%#v' failed to verify", i, ppResp.Body[i]))
+					}
+				}
+				back = make([]byte, n)
+				wrote := 0
+				for i := 0; i < len(ppResp.Body); i++ {
+					wrote += copy(back[wrote:], ppResp.Body[i].Payload)
+				}
+			}
+			// end reply in back with this data
 		}
 	}
 
