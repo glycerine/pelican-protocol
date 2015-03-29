@@ -121,8 +121,8 @@ func DefaultChaserConfig() *ChaserConfig {
 	return &ChaserConfig{
 		ConnectTimeout:   2000 * time.Millisecond,
 		TransportTimeout: 60 * time.Second,
-		//BufSize:             1 * 1024 * 1024,
-		BufSize:             64 * 1024,
+		BufSize:          1 * 1024 * 1024,
+		//BufSize:             64 * 1024,
 		ShutdownInactiveDur: 10 * time.Minute,
 	}
 }

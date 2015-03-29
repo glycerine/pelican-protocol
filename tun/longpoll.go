@@ -109,6 +109,12 @@ func NewLongPoller(cfg LongPollerConfig) *LongPoller {
 	}
 	cfg.Dest.SetIpPort()
 
+	po("NewLongPoller() originally, cfg.Bufsz = %d", cfg.Bufsz)
+	if cfg.Bufsz == 0 {
+		cfg.Bufsz = DefaultChaserConfig().BufSize
+		po("NewLongPoller(): using cfg.Bufsz = %d, from DefaultChaserConfig().BufSize", cfg.Bufsz)
+	}
+
 	s := &LongPoller{
 		cfg:                cfg,
 		reqStop:            make(chan bool),
