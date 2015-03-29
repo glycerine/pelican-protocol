@@ -92,17 +92,14 @@ func ReplyToAbHelper(ch chan *tunnelPacket, serialNum int64) *tunnelPacket {
 	r, err := http.NewRequest("POST", "http://example.com/", reqBody)
 	panicOn(err)
 
-	pack := &tunnelPacket{
-		resp:    c,
-		respdup: new(bytes.Buffer),
-		request: r,
-		done:    make(chan bool),
-		ppReq: &PelicanPacket{
-			IsRequest: true,
-			Key:       "longpoll_test_key",
-			Body:      []*Pbody{NewRequestPbody(body, serialNum)},
-		},
-	}
+	pack := NewTunnelPacket(serialNum, -1, "longpoll_test_key")
+	pack.resp = c
+	pack.respdup = new(bytes.Buffer)
+	pack.request = r
+	pack.done = make(chan bool)
+	pack.ppReq = NewPelicanPacket(request, serialNum)
+	pack.ppReq.SetSerial(serialNum)
+	pack.AddPayload(request, body)
 
 	ch <- pack
 

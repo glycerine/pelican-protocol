@@ -34,14 +34,32 @@ type PelicanPacket struct {
 	// if not Request, then is Reply
 	IsRequest bool     `capid:"0"`
 	Key       string   `capid:"1"`
-	Serialnum int64    `capid:"2"`
+	Serialnum int64    `capid:"2"` // for ab -> lp packets on the lp side
 	Body      []*Pbody `capid:"3"`
 }
 
-func NewPelicanPacket(isReq isReqType) *PelicanPacket {
+func NewPelicanPacket(isReq isReqType, ser int64) *PelicanPacket {
 	return &PelicanPacket{
 		IsRequest: bool(isReq),
+		Serialnum: ser,
 		Body:      make([]*Pbody, 0),
+	}
+}
+
+func (pp *PelicanPacket) AppendPayload(work []byte) {
+	// ignore len 0 work
+	if len(work) == 0 {
+		return
+	}
+
+	newPbody := newPbody(pp.IsRequest, work, pp.Serialnum)
+	pp.Body = append(pp.Body, newPbody)
+}
+
+func (pp *PelicanPacket) SetSerial(ser int64) {
+	pp.Serialnum = ser
+	for _, v := range pp.Body {
+		v.Serialnum = ser
 	}
 }
 
@@ -56,25 +74,14 @@ type Pbody struct {
 	Payload []byte   `capid:"6"`
 }
 
-func NewRequestPbody(payload []byte, ser int64) *Pbody {
+func newPbody(isRequest bool, payload []byte, ser int64) *Pbody {
 	return &Pbody{
-		IsRequest: true,
+		IsRequest: isRequest,
 		Paymac:    sha3.Sum512(payload),
 		Payload:   payload,
 		Paysize:   int64(len(payload)),
 		Serialnum: ser,
 		AbTm:      time.Now().UnixNano(),
-	}
-}
-
-func NewResponsePbody(payload []byte, ser int64) *Pbody {
-	return &Pbody{
-		IsRequest: false,
-		Paymac:    sha3.Sum512(payload),
-		Payload:   payload,
-		Paysize:   int64(len(payload)),
-		Serialnum: ser,
-		LpTm:      time.Now().UnixNano(),
 	}
 }
 

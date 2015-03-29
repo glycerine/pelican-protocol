@@ -11,7 +11,7 @@ type tunnelPacket struct {
 
 	request *http.Request
 
-	//key  string // separate from body
+	key  string // separate from body
 	done chan bool
 
 	// becomes ppResp.Serialnum
@@ -21,13 +21,28 @@ type tunnelPacket struct {
 	ppResp *PelicanPacket
 }
 
-func NewTunnelPacket() *tunnelPacket {
+//
+func NewTunnelPacket(reqSer int64, respSer int64, key string) *tunnelPacket {
 	p := &tunnelPacket{
+		key:    key,
 		done:   make(chan bool),
-		ppReq:  NewPelicanPacket(request),
-		ppResp: NewPelicanPacket(response),
+		ppReq:  NewPelicanPacket(request, reqSer),
+		ppResp: NewPelicanPacket(response, respSer),
 	}
 	return p
+}
+
+func (t *tunnelPacket) AddPayload(isReq isReqType, work []byte) {
+	// ignore len 0 work
+	if len(work) == 0 {
+		return
+	}
+
+	if isReq == request {
+		t.ppReq.AppendPayload(work)
+	} else {
+		t.ppResp.AppendPayload(work)
+	}
 }
 
 /*

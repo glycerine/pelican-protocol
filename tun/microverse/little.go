@@ -170,27 +170,18 @@ func (s *LittlePoll) Start() error {
 				// addition if this is an empty packet, because there will be lots of those.
 				//
 				rs := s.getReplySerial()
-				rser := SerialToBytes(rs)
-				nw, err := oldest.resp.Write(rser)
+				oldest.ppResp.SetSerial(rs)
+
+				// write capnp format to resp
+				err := oldest.ppResp.Save(oldest.resp)
 				if err != nil {
 					panic(err)
 				}
-				if nw != len(rser) {
-					panic(fmt.Sprintf("short write: tried to write %d, but wrote %d", len(rser), nw))
-				}
 
-				if countForUpstream != int64(len(oldest.respdup.Bytes())) {
-					panic(fmt.Sprintf("should never get here: countForUpstream is out of sync with oldest.respdup.Bytes(): %d == countForUpstream != len(oldest.respdup.Bytes()) == %d", countForUpstream, len(oldest.respdup.Bytes())))
-				}
-
-				nw, err = oldest.respdup.Write(rser)
+				err = oldest.ppResp.Save(oldest.respdup)
 				if err != nil {
 					panic(err)
 				}
-				if nw != len(rser) {
-					panic(fmt.Sprintf("short write: tried to write %d, but wrote %d", len(rser), nw))
-				}
-				oldest.ppResp.Serialnum = rs
 
 			} else {
 				oldest.ppResp.Serialnum = -1
@@ -274,6 +265,12 @@ func (s *LittlePoll) Start() error {
 				// a server initiated reply medium. And we should never send
 				// a zero serial -- they start at 1.
 				packReqSn := pack.ppReq.Serialnum
+				po("%p  longPoller got client packet! recvCount now: %d", s, s.recvCount)
+
+				if packReqSn == 0 {
+					panic("should never get 0 sn.")
+				}
+
 				if packReqSn > 0 {
 
 					if packReqSn != s.lastRequestSerialNumberSeen+1 {
@@ -320,7 +317,9 @@ func (s *LittlePoll) Start() error {
 				// given request.
 				waiters.PushLeft(pack)
 
-				po("%p  LittlePoll, just received ClientPacket with pack.reqBody = '%s'\n", s, string(pack.ppReq.Body[0].Payload))
+				if pack.ppReq != nil && len(pack.ppReq.Body) > 0 {
+					po("%p  LittlePoll, just received ClientPacket with pack.ppReq.Body[0].Payload = '%s'\n", s, string(pack.ppReq.Body[0].Payload))
+				}
 
 				// have to both send and receive
 

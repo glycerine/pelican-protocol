@@ -14,23 +14,12 @@ import (
 func TestPacketLoadSave053(t *testing.T) {
 
 	cv.Convey("test that basic PelicanPacket serialization and deserialization work", t, func() {
+		rw := NewPelicanPacket(request, 23)
 
-		rw := PelicanPacket{
-			IsRequest: true,
-			Key:       "mykey",
-			Body: []*Pbody{
-				NewRequestPbody([]byte("wonderful1"), 23),
-				NewResponsePbody([]byte("wonderful1"), 23),
-				&Pbody{
-					IsRequest: true,
-					Payload:   []byte("wonderful2"),
-				},
-				&Pbody{
-					IsRequest: false,
-					Payload:   []byte("wonderful3"),
-				},
-			},
-		}
+		rw.Key = "mykey"
+		rw.AppendPayload([]byte("wonderful1"))
+		rw.AppendPayload([]byte("wonderful2"))
+		rw.AppendPayload([]byte("wonderful3"))
 
 		var o bytes.Buffer
 		rw.Save(&o)

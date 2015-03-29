@@ -39,17 +39,16 @@ func TestRequestOneMisorderingIsCorrected046(t *testing.T) {
 		reqBody2 := bytes.NewBuffer(body2)
 		r2, err := http.NewRequest("POST", "http://example.com/", reqBody2)
 		panicOn(err)
-		pack2 := &tunnelPacket{
-			resp:    c2,
-			respdup: new(bytes.Buffer),
-			request: r2,
-			done:    make(chan bool),
-			ppReq: &PelicanPacket{
-				IsRequest: true,
-				Key:       "longpoll_test_key",
-				Body:      []*Pbody{NewRequestPbody(body2, 2)},
-			},
-		}
+
+		sn := int64(2)
+		pack2 := NewTunnelPacket(sn, -1, "longpoll_test_key")
+		pack2.resp = c2
+		pack2.respdup = new(bytes.Buffer)
+		pack2.request = r2
+		pack2.done = make(chan bool)
+		pack2.ppReq = NewPelicanPacket(request, sn)
+		pack2.ppReq.SetSerial(sn)
+		pack2.AddPayload(request, body2)
 
 		lp.ab2lp <- pack2
 
@@ -60,17 +59,15 @@ func TestRequestOneMisorderingIsCorrected046(t *testing.T) {
 		r1, err := http.NewRequest("POST", "http://example.com/", reqBody1)
 		panicOn(err)
 
-		pack1 := &tunnelPacket{
-			resp:    c1,
-			respdup: new(bytes.Buffer),
-			request: r1,
-			done:    make(chan bool),
-			ppReq: &PelicanPacket{
-				IsRequest: true,
-				Key:       "longpoll_test_key",
-				Body:      []*Pbody{NewRequestPbody(body1, 1)},
-			},
-		}
+		sn = 1
+		pack1 := NewTunnelPacket(sn, -1, "longpoll_test_key")
+		pack1.resp = c1
+		pack1.respdup = new(bytes.Buffer)
+		pack1.request = r1
+		pack1.done = make(chan bool)
+		pack1.ppReq = NewPelicanPacket(request, sn)
+		pack1.ppReq.SetSerial(sn)
+		pack1.AddPayload(request, body1)
 
 		lp.ab2lp <- pack1
 
@@ -241,17 +238,14 @@ func SendHelper(ch chan *tunnelPacket, serialNum int64) *tunnelPacket {
 	r2, err := http.NewRequest("POST", "http://example.com/", reqBody2)
 	panicOn(err)
 
-	pack2 := &tunnelPacket{
-		resp:    c2,
-		respdup: new(bytes.Buffer),
-		request: r2,
-		done:    make(chan bool),
-		ppReq: &PelicanPacket{
-			IsRequest: true,
-			Key:       "longpoll_test_key",
-			Body:      []*Pbody{NewRequestPbody(body2, serialNum)},
-		},
-	}
+	pack2 := NewTunnelPacket(serialNum, -1, "longpoll_test_key")
+	pack2.resp = c2
+	pack2.respdup = new(bytes.Buffer)
+	pack2.request = r2
+	pack2.done = make(chan bool)
+	pack2.ppReq = NewPelicanPacket(request, serialNum)
+	pack2.ppReq.SetSerial(serialNum)
+	pack2.AddPayload(request, body2)
 
 	ch <- pack2
 

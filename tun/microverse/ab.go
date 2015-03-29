@@ -667,11 +667,10 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 		reqSer = s.getNextSendSerNum()
 	}
 
-	pack := NewTunnelPacket()
+	pack := NewTunnelPacket(reqSer, -1, s.key)
 	pack.resp = NewMockResponseWriter()
 	pack.respdup = new(bytes.Buffer)
-	newPbody := NewRequestPbody(work, reqSer)
-	pack.ppReq.Body = append(pack.ppReq.Body, newPbody)
+	pack.AddPayload(request, work)
 
 	po("%p Chaser.DoRequestResponse() about to do initial request with packet.requestSerial: %d, work/pack.reqBody: '%s'", s, reqSer, string(work))
 
@@ -687,19 +686,34 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 	select {
 	case pack := <-s.lp2ab:
 		fmt.Printf("pack.respdup = %p\n", pack.respdup)
-		body := pack.respdup.Bytes()
+		ppResp := &PelicanPacket{}
+		ppResp.Load(pack.respdup.Bytes())
+		//body := pack.respdup.Bytes()
 
 		recvSerial = -1 // default for empty bytes in body
-		if len(body) >= SerialLen {
-			// if there are any bytes, then the replySerial number will be the last 8
-			serStart := len(body) - SerialLen
-			recvSerial = BytesToSerial(body[serStart:])
-			body = body[:serStart]
+		//		if len(body) >= SerialLen {
+		if len(ppResp.Body) > 0 {
+			if len(ppResp.Body) == 1 {
+				back = ppResp.Body[0].Payload
+			} else {
+				n := 0
+				for i := 0; i < len(ppResp.Body); i++ {
+					n += len(ppResp.Body[i].Payload)
+					if int64(len(ppResp.Body[i].Payload)) != ppResp.Body[i].Paysize {
+						panic(fmt.Sprintf("len(ppResp.Body[i].Payload) != ppResp.Body[i].Paysize; %d != %d",
+							len(ppResp.Body[i].Payload),
+							ppResp.Body[i].Paysize))
+					}
+				}
+				back = make([]byte, n)
+				wrote := 0
+				for i := 0; i < len(ppResp.Body); i++ {
+					wrote += copy(back[wrote:], ppResp.Body[i].Payload)
+				}
+			}
 		}
 
-		back = body
-
-		po("DoRequestResponse got from lp2ab: '%s', with recvSerial=%d", string(body), recvSerial)
+		po("DoRequestResponse got from lp2ab: '%s', with recvSerial=%d", string(back), ppResp.Serialnum)
 		s.NoteTmRecv()
 	case <-s.reqStop:
 		po("Chaser reqStop before lp2ab reply received")
