@@ -27,10 +27,11 @@ func TestPacketLoadSave053(t *testing.T) {
 		rw2 := &PelicanPacket{}
 		rw2.Load(o.Bytes())
 
-		eq := reflect.DeepEqual(&rw, rw2)
+		//		eq := PacketsEqual(rw, rw2)
+		eq := reflect.DeepEqual(rw, rw2)
 
 		if !eq {
-			fmt.Printf("rw and rw2 were not equal!\n")
+			fmt.Printf("\n\n ****** rw and rw2 were not equal!\n")
 
 			fmt.Printf("\n\n =============  rw: ====\n")
 			goon.Dump(rw)
@@ -45,4 +46,26 @@ func TestPacketLoadSave053(t *testing.T) {
 
 		cv.So(eq, cv.ShouldEqual, true)
 	})
+}
+
+func PacketsEqual(a, b *PelicanPacket) bool {
+
+	for i := 0; i < len(a.Body); i++ {
+		if !reflect.DeepEqual(a.Body[i], b.Body[i]) {
+			panic(fmt.Sprintf("difference at %d", i))
+			return false
+		}
+	}
+
+	if a.Key != b.Key {
+		panic("Key")
+	}
+	if a.IsRequest != b.IsRequest {
+		panic("IsRequest")
+	}
+	if a.Serialnum != b.Serialnum {
+		panic("Serialnum")
+	}
+
+	return true
 }

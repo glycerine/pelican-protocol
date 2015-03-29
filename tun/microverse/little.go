@@ -193,7 +193,9 @@ func (s *LittlePoll) Start() error {
 			if oldest.ppReq.Serialnum >= 0 {
 				po("sending s.lp2ab <- oldest where oldest.respdup.Bytes() = '%s'. countForUpstream = %d. oldest.requestSerial = %d", string(oldest.respdup.Bytes()[:countForUpstream]), countForUpstream, oldest.ppReq.Serialnum)
 			} else {
-				po("sending s.lp2ab <- oldest. countForUpstream = %d. oldest.requestSerial = %d", countForUpstream, oldest.ppResp.Body[0].Serialnum)
+				if oldest.ppReq != nil && len(oldest.ppReq.Body) > 0 {
+					po("sending s.lp2ab <- oldest. countForUpstream = %d. oldest.requestSerial = %d", countForUpstream, oldest.ppResp.Body[0].Serialnum)
+				}
 			}
 
 			// little only -- this actually does the send reply in the microverse.
