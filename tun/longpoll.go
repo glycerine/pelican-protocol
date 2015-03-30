@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/glycerine/go-goon"
 )
 
 // A LongPoller (aka tunnel) is the server-side implementation
@@ -71,7 +73,7 @@ type LongPoller struct {
 
 	// save misordered requests here, to play
 	// them back in the right order.
-	misorderedRequests map[int64]*SerReq
+	misorderedRequests map[int64]*PelicanPacket
 
 	// estimated time for RTT to downstream server,
 	// getting this right can speed things up significantly
@@ -128,7 +130,7 @@ func NewLongPoller(cfg LongPollerConfig) *LongPoller {
 		CloseKeyChan:       make(chan string),
 		pollDur:            cfg.PollDur,
 		nextReplySerial:    1,
-		misorderedRequests: make(map[int64]*SerReq),
+		misorderedRequests: make(map[int64]*PelicanPacket),
 		//fastWaitDur:        20 * time.Microsecond, // 0.352s with 1MB buffers
 		//fastWaitDur: 5 * time.Millisecond, // locally 2.299s with 1MB buffers
 		//fastWaitDur: 1 * time.Millisecond, // 0.772sec
@@ -213,14 +215,22 @@ func (s *LongPoller) Start() error {
 		defer func() { s.finish() }()
 
 		// duration of the long poll
-
-		longPollTimeUp := time.NewTimer(s.pollDur)
+		var longPollTimeUp *time.Timer
+		if int64(s.pollDur) > 0 {
+			longPollTimeUp = time.NewTimer(s.pollDur)
+		} else {
+			// s.pollDur is 0, so do not do the long-poll
+			// timer at all. useful for tests.
+			longPollTimeUp = time.NewTimer(24 * time.Hour)
+			longPollTimeUp.Stop()
+		}
 
 		var pack *tunnelPacket
+		var wasOutOfOrder bool
 
 		// set this to finish re-ordering a packet. Return to nil when
 		// done writing the re-ordered packet.
-		coalescedSequence := make([]*SerReq, 0)
+		coalescedSequence := make([]*Pbody, 0)
 
 		// in cliReq and bytesFromServer, the client is upstream and the
 		// server is downstream. In LongPoller, we read from the server
@@ -234,6 +244,11 @@ func (s *LongPoller) Start() error {
 
 		var countForUpstream int64
 
+		// tries to send, and does if we have
+		// a waiting request to send on.
+		//
+		// returns false iff we got s.reqStop
+		// while trying to send.
 		sendReplyUpstream := func() bool {
 			if waiters.Empty() {
 				return true
@@ -243,45 +258,40 @@ func (s *LongPoller) Start() error {
 
 			po("%p '%s' longpoller sendReplyUpstream() is sending along oldest ClientRequest with response, countForUpstream(%d) >0 || len(waitingCliReqs)==%d was > 0", s, skey, countForUpstream, waiters.Len())
 
-			if countForUpstream != int64(len(oldest.respdup.Bytes())) {
-				panic(fmt.Sprintf("should never get here: countForUpstream is out of sync with oldest.respdup.Bytes(): %d == countForUpstream != len(oldest.respdup.Bytes()) == %d", countForUpstream, len(oldest.respdup.Bytes())))
+			if countForUpstream != oldest.ppResp.TotalPayloadSize() {
+				panic(fmt.Sprintf("should never get here: countForUpstream is out of sync with oldest.ppResp.TotalPayloadSize(): %d == countForUpstream != len(oldest.ppResp.TotalPayloadSize() == %d", countForUpstream, oldest.ppResp.TotalPayloadSize()))
 			}
 
 			if countForUpstream > 0 {
 				// last thing before the reply: append reply serial number, to allow
 				// correct ordering on the client end. But skip replySerialNumber
 				// addition if this is an empty packet, because there will be lots of those.
+				// That is why the countForUpstream > 0 condition in here.
 				//
 				rs := s.getReplySerial()
-				rser := SerialToBytes(rs)
-				nw, err := oldest.resp.Write(rser)
-				if err != nil {
-					panic(err)
-				}
-				if nw != len(rser) {
-					panic(fmt.Sprintf("short write: tried to write %d, but wrote %d", len(rser), nw))
-				}
-				nw, err = oldest.respdup.Write(rser)
-				if err != nil {
-					panic(err)
-				}
-				if nw != len(rser) {
-					panic(fmt.Sprintf("short write: tried to write %d, but wrote %d", len(rser), nw))
-				}
-				oldest.replySerial = rs
+				oldest.ppResp.SetSerial(rs)
 
 			} else {
-				oldest.replySerial = -1
+				oldest.ppResp.SetSerial(-1)
 			}
+
+			// write capnp format to resp
+			err := oldest.ppResp.Save(oldest.resp)
+			panicOn(err)
+
+			// respdup is for testing
+			oldest.respdup.Reset()
+			err = oldest.ppResp.Save(oldest.respdup)
+			panicOn(err)
 
 			close(oldest.done) // send reply!
 			countForUpstream = 0
 
 			// debug
-			if oldest.replySerial >= 0 {
-				po("sending s.lp2ab <- oldest where oldest.respdup.Bytes() = '%s'. countForUpstream = %d. oldest.requestSerial = %d", string(oldest.respdup.Bytes()[:countForUpstream]), countForUpstream, oldest.requestSerial)
+			if oldest.ppReq.Serialnum >= 0 {
+				po("sending s.lp2ab <- oldest where oldest.respdup.Bytes() = '%s'. countForUpstream = %d. oldest.ppReq.Serialnum = %d", string(oldest.respdup.Bytes()[:countForUpstream]), countForUpstream, oldest.ppReq.Serialnum)
 			} else {
-				po("sending s.lp2ab <- oldest. countForUpstream = %d. oldest.requestSerial = %d", countForUpstream, oldest.requestSerial)
+				po("sending s.lp2ab <- oldest. countForUpstream = %d. oldest.ppReq.Serialnum = %d", countForUpstream, oldest.ppReq.Serialnum)
 			}
 
 			if waiters.Empty() {
@@ -291,6 +301,7 @@ func (s *LongPoller) Start() error {
 		} // end sendReplyUpstream
 
 		for {
+			wasOutOfOrder = false
 			po("%p '%s' longpoller: at top of LongPoller loop, inside Start(). len(wait)=%d", s, skey, waiters.Len())
 
 			select {
@@ -314,16 +325,10 @@ func (s *LongPoller) Start() error {
 				po("%p '%s' LongPoller got data from downstream <-s.rw.RecvFromDownCh() got b500='%s'\n", s, skey, string(b500))
 
 				oldestReqPack := waiters.PeekRight()
-				_, err := oldestReqPack.resp.Write(b500)
-				if err != nil {
-					panic(err)
-				}
-				countForUpstream += int64(len(b500))
 
-				_, err = oldestReqPack.respdup.Write(b500)
-				if err != nil {
-					panic(err)
-				}
+				countForUpstream += int64(len(b500))
+				oldestReqPack.ppResp.AppendPayload(b500, false)
+
 				sendReplyUpstream()
 
 			case pack = <-s.ClientPacketRecvd:
@@ -331,7 +336,7 @@ func (s *LongPoller) Start() error {
 				s.NoteTmRecv()
 				po("%p  longPoller got client packet! recvCount now: %d", s, s.recvCount)
 
-				if len(pack.reqBody) > 0 {
+				if pack.ppReq.TotalPayloadSize() > 0 {
 					s.lastUseTm = time.Now()
 				}
 
@@ -340,33 +345,38 @@ func (s *LongPoller) Start() error {
 				// ignore negative serials--they were just for getting
 				// a server initiated reply medium. And we should never send
 				// a zero serial -- they start at 1.
-				if pack.requestSerial > 0 {
+				if pack.ppReq.Serialnum > 0 {
 
-					if pack.requestSerial != s.lastRequestSerialNumberSeen+1 {
+					if !pack.ppReq.Verifies() {
+						fmt.Printf("pack.ppReq on s.ab2lp did not verify checksum!: '%#v'\ngoon.Dump:\n", pack.ppReq)
+						goon.Dump(pack.ppReq)
+						panic("pack.ppReq on s.ab2lp did not verify checksum!")
+					}
+
+					if pack.ppReq.Serialnum != s.lastRequestSerialNumberSeen+1 {
 						po("detected out of order pack %d, s.lastRequestSerialNumberSeen=%d",
-							pack.requestSerial, s.lastRequestSerialNumberSeen)
-						// pack.requestSerial is out of order
+							pack.ppReq.Serialnum, s.lastRequestSerialNumberSeen)
+						// pack.ppReq.Serialnum is out of order
 
 						// sanity check
-						_, already := s.misorderedRequests[pack.requestSerial]
+						_, already := s.misorderedRequests[pack.ppReq.Serialnum]
 						if already {
-							panic(fmt.Sprintf("misordered request detected, but we already saw pack.requestSerial =%d. Misorder because s.lastRequestSerialNumberSeen = %d which is not one less than pack.requestSerial", pack.requestSerial, s.lastRequestSerialNumberSeen))
+							panic(fmt.Sprintf("misordered request detected, but we already saw pack.ppReq.Serialnum =%d. Misorder because s.lastRequestSerialNumberSeen = %d which is not one less than pack.ppReq.Serialnum", pack.ppReq.Serialnum, s.lastRequestSerialNumberSeen))
 						} else {
 							// sanity check that we aren't too far off
-							if pack.requestSerial < s.lastRequestSerialNumberSeen {
-								panic(fmt.Sprintf("duplicate request number from the past: pack.requestSerial =%d < s.lastRequestSerialNumberSeen = %d", pack.requestSerial, s.lastRequestSerialNumberSeen))
+							if pack.ppReq.Serialnum < s.lastRequestSerialNumberSeen {
+								panic(fmt.Sprintf("duplicate request number from the past: pack.ppReq.Serialnum =%d < s.lastRequestSerialNumberSeen = %d", pack.ppReq.Serialnum, s.lastRequestSerialNumberSeen))
 							}
 
 							// the main action in the event of misorder detection:
-							// store the misorder request until later, but still push onto waiters for replies.
-							s.misorderedRequests[pack.requestSerial] = ToSerReq(pack)
-							// length 0 the body so we don't forward downstream out-of-order now.
-							pack.reqBody = pack.reqBody[:0]
+							// store the misorder request until later, but still push onto waiters for replies below.
+							s.misorderedRequests[pack.ppReq.Serialnum] = pack.ppReq
+							wasOutOfOrder = true
 						}
 					} else {
-						s.lastRequestSerialNumberSeen = pack.requestSerial
+						s.lastRequestSerialNumberSeen = pack.ppReq.Serialnum
 					}
-				} // end if pack.requestSerial > 0
+				} // end if pack.ppReq.Serialnum > 0
 
 				// Data or note, we reset the poll timer, so that we only hold
 				// this packet open on this end for at most 'dur' time.
@@ -390,7 +400,9 @@ func (s *LongPoller) Start() error {
 				// got to here in the merge of little.go and longpoll.go
 				// ===================================
 
-				po("%p '%s' LongPoller, just received ClientPacket with pack.reqBody = '%s'\n", s, skey, string(pack.reqBody))
+				if pack.ppReq != nil && pack.ppReq.TotalPayloadSize() > 0 {
+					po("%p '%s' LongPoller, just received ClientPacket with pack.ppReq.Body[0].Payload = '%s'\n", s, skey, string(pack.ppReq.Body[0].Payload))
+				}
 
 				// have to both send and receive
 
@@ -398,20 +410,20 @@ func (s *LongPoller) Start() error {
 
 				po("%p '%s' just before s.rw.SendToDownCh()", s, skey)
 
-				if len(pack.reqBody) > 0 {
+				if !wasOutOfOrder && pack.ppReq.TotalPayloadSize() > 0 {
 					// we got data from the client for server!
 					// read from the request body and write to the ResponseWriter
 
 					// append pack to where it belongs
-					coalescedSequence = append(coalescedSequence, ToSerReq(pack))
+					coalescedSequence = append(coalescedSequence, pack.ppReq.Body...)
 
 					// *goes after* additions: check for any that can go in-order *after* pack
-					lookFor := pack.requestSerial + 1
+					lookFor := pack.ppReq.Serialnum + 1
 					for {
-						if ooo, ok := s.misorderedRequests[lookFor]; ok {
-							coalescedSequence = append(coalescedSequence, ooo)
+						if oooPp, ok := s.misorderedRequests[lookFor]; ok {
+							coalescedSequence = append(coalescedSequence, oooPp.Body...)
 							delete(s.misorderedRequests, lookFor)
-							s.lastRequestSerialNumberSeen = ooo.requestSerial
+							s.lastRequestSerialNumberSeen = oooPp.Serialnum
 							lookFor++
 						} else {
 							break
@@ -419,7 +431,7 @@ func (s *LongPoller) Start() error {
 					}
 					// coalescedSequence will contain our buffers in order
 
-					writeMe := pack.reqBody
+					writeMe := pack.ppReq.Body[0].Payload
 
 					// if we have more than pack, adjust writeMe to
 					// encompass all buffers that are ready to go in-order now.
@@ -427,7 +439,7 @@ func (s *LongPoller) Start() error {
 						// now concatenate all together for one send
 						var allTogether bytes.Buffer
 						for _, v := range coalescedSequence {
-							allTogether.Write(v.reqBody)
+							allTogether.Write(v.Payload)
 						}
 						writeMe = allTogether.Bytes()
 					}
@@ -455,9 +467,6 @@ func (s *LongPoller) Start() error {
 
 				// transfer data from server to client
 
-				// This is an important optimization: omitting this pause/check
-				// makes things 12x slower on the local machine.
-				//
 				// TODO: instead of fixed 5msec, this threshold should be
 				// 1x the one-way-trip time from the client-to-server, since that is
 				// the expected additional alternative wait time if we have to reply
@@ -474,16 +483,9 @@ func (s *LongPoller) Start() error {
 						po("%p '%s' longpoller  <-s.rw.RecvFromDownCh() got b500='%s' during fast-reply-wait (after %v)\n", s, skey, string(b500), time.Since(startFastWaitTm))
 
 						oldest := waiters.PeekRight()
-						_, err := oldest.resp.Write(b500)
-						if err != nil {
-							panic(err)
-						}
-						countForUpstream += int64(len(b500))
 
-						_, err = oldest.respdup.Write(b500)
-						if err != nil {
-							panic(err)
-						}
+						countForUpstream += int64(len(b500))
+						oldest.ppResp.AppendPayload(b500, false)
 
 					case <-time.After(s.fastWaitDur): // slightly faster locally than 500 usec: 1.2sec.
 						//case <-time.After(20 * time.Millisecond): // 1msec => 1.20s; same with 500 usec; 2msec-3msec => 1.09s, slightly faster. 4msec => 1.105sec 5msec => 1.10sec
@@ -501,7 +503,7 @@ func (s *LongPoller) Start() error {
 				if countForUpstream > 0 || waiters.Len() > 1 {
 					sendReplyUpstream()
 				} else {
-					po("%p '%s' LongPoll countForUpstream(%d); len(waitingCliReqs)==%d",
+					po("%p '%s' LongPoll countForUpstream(%d); waiters.Len()==%d",
 						s, skey, countForUpstream, waiters.Len())
 				}
 

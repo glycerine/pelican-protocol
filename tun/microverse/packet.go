@@ -33,8 +33,10 @@ const response isReqType = false
 //new:
 type PelicanPacket struct {
 	// if not Request, then is Reply
-	IsRequest bool     `capid:"0"`
-	Key       string   `capid:"1"`
+	IsRequest bool   `capid:"0"`
+	Key       string `capid:"1"`
+
+	// order the replies/requests by serial number. Empty replies get serial number -1.
 	Serialnum int64    `capid:"2"` // for ab -> lp packets on the lp side
 	Body      []*Pbody `capid:"3"`
 }

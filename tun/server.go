@@ -177,11 +177,17 @@ func (s *ReverseProxy) startExternalHttpListener() {
 		panicOn(err)
 		//po("top level handler(): in '/' and '/ping' packetHandler, packet len without key: %d: making new tunnelPacket, url = '%s', http.Request r = '%#v'. r.Body = '%s'\n", len(body)-KeyLen, r.URL, *r, string(body))
 
-		key := make([]byte, KeyLen)
-		copy(key, body)
-		legitPelicanKey := IsLegitPelicanKey(key)
+		ppReq := &PelicanPacket{}
+		ppReq.Load(body)
 
-		if len(body) < HeaderLen || !legitPelicanKey {
+		legitPelicanKey := IsLegitPelicanKey([]byte(ppReq.Key))
+
+		// todo: remove for production
+		if !ppReq.Verifies() {
+			panic("ppReq did not verify!!\n")
+		}
+
+		if !ppReq.Verifies() || !legitPelicanKey {
 			// pass through here to the downstream webserver directly, by-passing pelican protocol stuff
 
 			// here we could act simply as a pass through proxy
@@ -193,7 +199,7 @@ func (s *ReverseProxy) startExternalHttpListener() {
 				http.StatusBadRequest)
 			return
 		}
-		s.injectPacket(c, r, body[HeaderLen:], string(key), BytesToSerial(body[KeyLen:KeyLen+SerialLen]))
+		s.injectPacket(c, r, ppReq)
 	}
 
 	// createHandler
@@ -287,19 +293,35 @@ type tunnelPacket struct {
 	respdup *bytes.Buffer // duplicate resp here, to enable testing
 
 	request *http.Request
-	reqBody []byte
-	key     string // separate from reqBody
-	done    chan bool
 
-	requestSerial int64 // order the sends with content by serial number
-	replySerial   int64 // order the replies by serial number. Empty replies get serial number -1.
+	key  string
+	done chan bool
+
+	ppReq  *PelicanPacket
+	ppResp *PelicanPacket
 }
 
-func NewTunnelPacket() *tunnelPacket {
+func NewTunnelPacket(reqSer int64, respSer int64, key string) *tunnelPacket {
 	p := &tunnelPacket{
-		done: make(chan bool),
+		key:    key,
+		done:   make(chan bool),
+		ppReq:  NewPelicanPacket(request, reqSer),
+		ppResp: NewPelicanPacket(response, respSer),
 	}
 	return p
+}
+
+func (t *tunnelPacket) AddPayload(isReq isReqType, work []byte, atAb bool) {
+	// ignore len 0 work
+	if len(work) == 0 {
+		return
+	}
+
+	if isReq == request {
+		t.ppReq.AppendPayload(work, atAb)
+	} else {
+		t.ppResp.AppendPayload(work, atAb)
+	}
 }
 
 // print out shortcut
@@ -309,6 +331,7 @@ func po(format string, a ...interface{}) {
 	}
 }
 
+/*
 func ToSerReq(pack *tunnelPacket) *SerReq {
 	return &SerReq{
 		reqBody:       pack.reqBody,
@@ -320,17 +343,26 @@ type SerReq struct {
 	reqBody       []byte
 	requestSerial int64 // order the sends with content by serial number
 }
+*/
 
-func (s *ReverseProxy) injectPacket(c http.ResponseWriter, r *http.Request, body []byte, key string, reqSerial int64) ([]byte, error) {
-	pack := &tunnelPacket{
-		resp:          c,
-		respdup:       new(bytes.Buffer),
-		request:       r,
-		reqBody:       body, // body no longer includes key of KeyLen in prefix
-		done:          make(chan bool),
-		key:           key,
-		requestSerial: reqSerial,
-	}
+func (s *ReverseProxy) injectPacket(c http.ResponseWriter, r *http.Request, ppReq *PelicanPacket) ([]byte, error) {
+
+	pack := NewTunnelPacket(ppReq.Serialnum, -1, ppReq.Key)
+	pack.resp = c
+	pack.respdup = new(bytes.Buffer)
+	pack.done = make(chan bool)
+
+	/*
+		pack := &tunnelPacket{
+			resp:          c,
+			respdup:       new(bytes.Buffer),
+			request:       r,
+			reqBody:       body, // body no longer includes key of KeyLen in prefix
+			done:          make(chan bool),
+			key:           key,
+			requestSerial: reqSerial,
+		}
+	*/
 
 	select {
 	case s.packetQueue <- pack:

@@ -299,7 +299,7 @@ func (s *LittlePoll) Start() error {
 				// given request.
 				waiters.PushLeft(pack)
 
-				if pack.ppReq != nil && len(pack.ppReq.Body) > 0 {
+				if pack.ppReq != nil && pack.ppReq.TotalPayloadSize() > 0 {
 					po("%p  LittlePoll, just received ClientPacket with pack.ppReq.Body[0].Payload = '%s'\n", s, string(pack.ppReq.Body[0].Payload))
 				}
 
@@ -309,7 +309,7 @@ func (s *LittlePoll) Start() error {
 
 				// we don't need to check if coalescedSequenceByteCount > 0, becuase it
 				// will be > 0 iff len(pack.pp.Body) is > 0.
-				if !wasOutOfOrder && len(pack.ppReq.Body) > 0 {
+				if !wasOutOfOrder && pack.ppReq.TotalPayloadSize() > 0 {
 					// we got data from the client for server!
 					// read from the request body and write to the ResponseWriter
 
@@ -367,13 +367,6 @@ func (s *LittlePoll) Start() error {
 				//po("%p  just after s.rw.SendToDownCh()", s)
 
 				// transfer data from server to client
-
-				// get the oldest packet, and reply using that. http requests
-				// get serviced mostly FIFO this way, and our long-poll
-				// timer reflects the time since the most recent packet
-				// arrival.
-				// comment out here, move above
-				//waiters.PushLeft(pack)
 
 				// TODO: instead of fixed 10msec, this threshold should be
 				// 1x the one-way-trip time from the client-to-server, since that is

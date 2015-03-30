@@ -11,11 +11,8 @@ type tunnelPacket struct {
 
 	request *http.Request
 
-	key  string // separate from body
+	key  string
 	done chan bool
-
-	// becomes ppResp.Serialnum
-	//replySerial int64 // order the replies by serial number. Empty replies get serial number -1.
 
 	ppReq  *PelicanPacket
 	ppResp *PelicanPacket

@@ -82,7 +82,11 @@ Accept-Encoding: gzip
 			panic(err)
 		}
 
-		reply, err := rev.injectPacket(mockRw, mockReq, body, tunnel.key, 1)
+		ppReq := NewPelicanPacket(request, 1)
+		ppReq.Key = tunnel.key
+		ppReq.AppendPayload(body, false)
+
+		reply, err := rev.injectPacket(mockRw, mockReq, ppReq)
 		cv.So(err, cv.ShouldEqual, nil)
 		po("reply = '%s'", string(reply))
 		cv.So(strings.HasPrefix(string(reply), `HTTP/1.1 200 OK`), cv.ShouldEqual, true)

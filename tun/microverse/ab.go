@@ -46,8 +46,10 @@ type Chaser struct {
 	lastActiveTm        time.Time
 	mutTimer            sync.Mutex
 
-	lp2ab chan *tunnelPacket
-	ab2lp chan *tunnelPacket
+	nextSendSerialNumber     int64
+	lastRecvSerialNumberSeen int64
+
+	misorderedReplies map[int64]*PelicanPacket
 
 	tmLastRecv []time.Time
 	tmLastSend []time.Time
@@ -55,13 +57,10 @@ type Chaser struct {
 	hist *HistoryLog
 	name string
 
-	nextSendSerialNumber     int64
-	lastRecvSerialNumberSeen int64
+	// ============= not in alphabeta.go
 
-	misorderedReplies map[int64]*PelicanPacket
-
-	NumChasers int // used to be alpha and beta, but now just alpha0..N
-
+	lp2ab chan *tunnelPacket
+	ab2lp chan *tunnelPacket
 }
 
 type ChaserConfig struct {

@@ -63,6 +63,7 @@ type Chaser struct {
 
 	incoming    chan []byte
 	repliesHere chan []byte
+
 	alphaIsHome bool
 	betaIsHome  bool
 
@@ -79,18 +80,11 @@ type Chaser struct {
 	key  string
 	dest Addr
 
-	// this rw maintains the net.Conn to the upstream client
-	rw           *ClientRW
-	rwReaderDone chan *NetConnReader
-	rwWriterDone chan *NetConnWriter
-
 	notifyDone chan *Chaser
 	skipNotify bool
 
 	mut sync.Mutex
 	cfg ChaserConfig
-
-	httpClient *HttpClientWithTimeout
 
 	// shutdown after a period on non-use
 	shutdownInactiveDur time.Duration
@@ -108,6 +102,16 @@ type Chaser struct {
 
 	hist *HistoryLog
 	name string
+
+	// ======== not in ab.go ========
+
+	// this rw maintains the net.Conn to the upstream client
+	rw           *ClientRW
+	rwReaderDone chan *NetConnReader
+	rwWriterDone chan *NetConnWriter
+
+	// makes http client requests to the server
+	httpClient *HttpClientWithTimeout
 }
 
 type ChaserConfig struct {
@@ -791,8 +795,6 @@ func (s *Chaser) getNextSendSerNum() int64 {
 //
 func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, recvSerial int64, err error) {
 
-	//po("debug: DoRequestResponse called with dest: '%#v', key: '%s', and work: '%s'", s.dest, s.key, string(work))
-
 	// only assign serial numbers to client payload, not to internal zero-byte
 	// alpha/beta requests that are there just to give the server a reply medium.
 	reqSer := int64(-1)
@@ -800,15 +802,12 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 		reqSer = s.getNextSendSerNum()
 	}
 
-	// assemble key + work into request
-	req := bytes.NewBuffer([]byte(s.key))
+	ppReq := NewPelicanPacket(request, reqSer)
+	ppReq.Key = s.key
+	ppReq.AppendPayload(work, true)
 
-	serBy := SerialToBytes(reqSer)
-	po("debug: serial = %d", reqSer)
-
-	req.Write(serBy) // add seqnum after key
-
-	req.Write(work) // add work after key + seqnum
+	var req bytes.Buffer
+	ppReq.Save(&req)
 
 	po("%p Chaser.DoRequestResponse(url='%s') just before Post of work = '%s'. s.cfg.ConnectTimeout = %v, s.cfg.TransportTimeout = %v. requestSerial = %d\n", s, urlPath, string(work), s.cfg.ConnectTimeout, s.cfg.TransportTimeout, reqSer)
 
@@ -817,7 +816,7 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 	//resp, err := http.Post(url, "application/octet-stream", req)
 	//
 	// preferred over http.Post() for its tunable timeouts:
-	resp, err := s.httpClient.Post(url, "application/octet-stream", req)
+	resp, err := s.httpClient.Post(url, "application/octet-stream", &req)
 
 	po("%p '%s' Chaser.DoRequestResponse(url='%s') just after Post.", s, string(s.key[:5]), urlPath)
 
