@@ -375,7 +375,6 @@ func (s *Chaser) startBeta(id int, name string) {
 					if !s.addIfPresent(&tryMe, by) {
 						break
 					}
-					tryMe++
 				}
 				sendMe := by.Bytes()
 

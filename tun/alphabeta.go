@@ -421,7 +421,7 @@ func (s *Chaser) startAlpha() {
 					if !s.addIfPresent(&tryMe, by) {
 						break
 					}
-					tryMe++
+					// done inside addIfPresent: tryMe++
 				}
 				sendMe := by.Bytes()
 

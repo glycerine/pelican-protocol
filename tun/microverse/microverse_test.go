@@ -119,7 +119,6 @@ func TestMicroverseLongPollTimeoutsCausePacketCirculationOtherwiseIdle042(t *tes
 
 	dn.Start()
 	defer dn.Stop()
-
 	lp.Start()
 	defer lp.Stop()
 
@@ -161,19 +160,25 @@ func TestMicroverseLongPollTimeoutsCausePacketCirculationOtherwiseIdle042(t *tes
 
 		// we should have seen at least 2 idle (2 second timeout) trips happen
 		// with preferrence for alpha
-		cv.So(len(alphaRTT)+len(betaRTT), cv.ShouldBeGreaterThanOrEqualTo, 3)
+		cv.So(len(alphaRTT)+len(betaRTT), cv.ShouldBeGreaterThanOrEqualTo, 2)
 
 		countLongPolls := 0
 
-		tol := time.Duration(100 * time.Millisecond).Nanoseconds()
-		for _, v := range alphaRTT {
+		tol := time.Duration(200 * time.Millisecond).Nanoseconds()
+		for i, v := range alphaRTT {
 			if int64Abs(v.Nanoseconds()-longPollDur.Nanoseconds()) < tol {
 				countLongPolls++
+				fmt.Printf("found a long poll in alphaRTT %d: %v\n", i, v)
+			} else {
+				fmt.Printf("NOT a long poll in alphaRTT %d: %v\n", i, v)
 			}
 		}
-		for _, v := range betaRTT {
+		for i, v := range betaRTT {
 			if int64Abs(v.Nanoseconds()-longPollDur.Nanoseconds()) < tol {
 				countLongPolls++
+				fmt.Printf("found a long poll in betaRTT %d: %v\n", i, v)
+			} else {
+				fmt.Printf("NOT a long poll in betaRTT %d: %v\n", i, v)
 			}
 		}
 		cv.So(countLongPolls, cv.ShouldBeGreaterThanOrEqualTo, 2)

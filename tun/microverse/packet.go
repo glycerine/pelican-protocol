@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"time"
 
@@ -54,6 +55,19 @@ func (pp *PelicanPacket) AppendPayload(work []byte) {
 
 	newPbody := newPbody(pp.IsRequest, work, pp.Serialnum)
 	pp.Body = append(pp.Body, newPbody)
+}
+
+func (pp *PelicanPacket) ShowPayload() {
+	fmt.Printf("\n=========== begin ShowPayload() ===================\n")
+	if len(pp.Body) == 0 {
+		fmt.Printf("len(pp.Body) == 0, no content here.\n")
+	} else {
+		for i := 0; i < len(pp.Body); i++ {
+			fmt.Printf("======== ShowPayload, Pbody %d of %d =========\n", i, len(pp.Body))
+			fmt.Printf("%s\n", string(pp.Body[i].Payload))
+		}
+	}
+	fmt.Printf("\n=========== end of ShowPayload() ===================\n")
 }
 
 func (pp *PelicanPacket) SetSerial(ser int64) {

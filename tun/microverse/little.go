@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"sync"
 	"time"
-
-	"github.com/glycerine/go-goon"
 )
 
 type LittlePoll struct {
@@ -192,7 +190,7 @@ func (s *LittlePoll) Start() error {
 			select {
 			case s.lp2ab <- oldest:
 				po("little just sent s.lp2ab <- oldest, where oldest.ppResp = '%#v'", oldest.ppResp)
-				goon.Dump(oldest.ppResp)
+				oldest.ppResp.ShowPayload()
 			case <-s.reqStop:
 				// shutting down
 				po("lp sendReplyUpstream got reqStop, returning false")
