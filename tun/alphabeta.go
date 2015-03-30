@@ -902,7 +902,7 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 		}
 	}
 
-	return body, recvSerial, err
+	return back, recvSerial, err
 }
 
 // Helper for startAlpha/startBeta;
@@ -928,30 +928,6 @@ func (s *Chaser) addIfPresent(tryMe *int64, by *bytes.Buffer) bool {
 
 	return true
 }
-
-/*
-// Helper for startAlpha/startBeta;
-// returns true iff we found and deleted tryMe from the s.misorderedReplies map.
-//  Along with the delete we write the contents of the found.response to 'by'.
-func (s *Chaser) addIfPresent(tryMe *int64, by *bytes.Buffer) bool {
-	s.mut.Lock()
-	defer s.mut.Unlock()
-
-	ooo, ok := s.misorderedReplies[*tryMe]
-
-	if !ok {
-		return false
-	}
-	po("ab reply misordering being corrected, reply sn: %d, data: '%s'",
-		*tryMe, string(ooo.response))
-	by.Write(ooo.response)
-	delete(s.misorderedReplies, *tryMe)
-	s.lastRecvSerialNumberSeen = *tryMe
-	(*tryMe)++
-
-	return true
-}
-*/
 
 /// logging
 

@@ -276,6 +276,7 @@ func (s *LongPoller) Start() error {
 			}
 
 			// write capnp format to resp
+			// already done: oldest.resp.Header().Set("Content-type", "application/octet-stream")
 			err := oldest.ppResp.Save(oldest.resp)
 			panicOn(err)
 
