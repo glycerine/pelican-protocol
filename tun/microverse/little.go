@@ -110,7 +110,6 @@ func (s *LittlePoll) finish() {
 // There are only ever two client (http) requests outstanding
 // at any given moment in time.
 //
-
 func (s *LittlePoll) Start() error {
 
 	go func() {
@@ -146,15 +145,12 @@ func (s *LittlePoll) Start() error {
 
 		var countForUpstream int64
 
-		curReply := make([]byte, 0, 4096)
-
 		// tries to send, and does if we have
 		// a waiting request to send on.
 		//
 		// returns false iff we got s.reqStop
 		// while trying to send.
 		sendReplyUpstream := func() bool {
-
 			if waiters.Empty() {
 				return true
 			}
@@ -208,7 +204,7 @@ func (s *LittlePoll) Start() error {
 				longPollTimeUp.Stop()
 			}
 			return true
-		}
+		} // end sendReplyUpstream
 
 		for {
 			wasOutOfOrder = false
@@ -412,7 +408,7 @@ func (s *LittlePoll) Start() error {
 						return
 					}
 				} else {
-					po("%p  LongPoll len(curReply) == %d; waiters.Len()==%d", s, len(curReply), waiters.Len())
+					po("%p  LongPoll waiters.Len()==%d", s, waiters.Len())
 				}
 
 				// end case pack = <-s.ClientPacketRecvd:
