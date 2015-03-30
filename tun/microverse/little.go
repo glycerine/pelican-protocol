@@ -176,15 +176,18 @@ func (s *LittlePoll) Start() error {
 				rs := s.getReplySerial()
 				oldest.ppResp.SetSerial(rs)
 
-				// write capnp format to resp/respdup
-				err := oldest.ppResp.Save(oldest.resp)
-				panicOn(err)
-				err = oldest.ppResp.Save(oldest.respdup)
-				panicOn(err)
-
 			} else {
 				oldest.ppResp.SetSerial(-1)
 			}
+
+			// write capnp format to resp/respdup
+			err := oldest.ppResp.Save(oldest.resp)
+			panicOn(err)
+
+			// little/microverse only:
+			oldest.respdup.Reset()
+			err = oldest.ppResp.Save(oldest.respdup)
+			panicOn(err)
 
 			close(oldest.done) // send reply!
 
@@ -233,7 +236,6 @@ func (s *LittlePoll) Start() error {
 				}
 
 				oldestReqPack := waiters.PeekRight()
-				po("%p  LittlePoll got data from downstream <-s.rw.RecvFromDownCh() got b500='%s'. oldestReqPack.respdup.Bytes() = '%s'\n", s, string(b500), string(oldestReqPack.respdup.Bytes()))
 
 				countForUpstream += int64(len(b500))
 				oldestReqPack.ppResp.AppendPayload(b500, false)
