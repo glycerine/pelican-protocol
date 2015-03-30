@@ -722,8 +722,7 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 		ppResp.SetAbTm()
 
 		recvSerial = -1 // default for empty bytes in body
-		//		if len(body) >= SerialLen {
-		if len(ppResp.Body) > 0 {
+		if ppResp.TotalPayloadSize() > 0 {
 			recvSerial = ppResp.Serialnum
 		}
 
