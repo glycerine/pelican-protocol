@@ -869,36 +869,11 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 			s.misorderedReplies[recvSerial] = ppResp
 			// wait to send upstream: indicate this by giving back 0 length.
 			back = back[:0]
-			s.mut.Unlock()
 		} else {
 			s.lastRecvSerialNumberSeen++
-			s.mut.Unlock()
 
 			// okay to reply in back with this data:
-			if len(ppResp.Body) == 1 {
-				back = ppResp.Body[0].Payload
-			} else {
-				// put together the multiple parts in Body
-				n := 0
-				for i := 0; i < len(ppResp.Body); i++ {
-					n += len(ppResp.Body[i].Payload)
-					// sanity checks:
-					if int64(len(ppResp.Body[i].Payload)) != ppResp.Body[i].Paysize {
-						panic(fmt.Sprintf("len(ppResp.Body[i].Payload) != ppResp.Body[i].Paysize; %d != %d",
-							len(ppResp.Body[i].Payload),
-							ppResp.Body[i].Paysize))
-					}
-					if !ppResp.Body[i].Verifies() {
-						panic(fmt.Sprintf("body %d '%#v' failed to verify", i, ppResp.Body[i]))
-					}
-				}
-				back = make([]byte, n)
-				wrote := 0
-				for i := 0; i < len(ppResp.Body); i++ {
-					wrote += copy(back[wrote:], ppResp.Body[i].Payload)
-				}
-			}
-			// end reply in back with this data
+			back = ppResp.TotalPayload()
 		}
 	}
 

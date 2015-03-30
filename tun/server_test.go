@@ -86,7 +86,17 @@ Accept-Encoding: gzip
 		ppReq.Key = tunnel.key
 		ppReq.AppendPayload(body, false)
 
-		reply, err := rev.injectPacket(mockRw, mockReq, ppReq)
+		rawreply, err := rev.injectPacket(mockRw, mockReq, ppReq)
+
+		ppResp := &PelicanPacket{}
+		ppResp.Load(rawreply)
+		if !ppResp.Verifies() {
+			fmt.Printf("ppResp on s.lp2ab did not verify checksum!: '%#v'\ngoon.Dump:\n", ppResp)
+			panic("ppResp on s.lp2ab did not verify checksum!")
+		}
+
+		reply := ppResp.TotalPayload()
+
 		cv.So(err, cv.ShouldEqual, nil)
 		po("reply = '%s'", string(reply))
 		cv.So(strings.HasPrefix(string(reply), `HTTP/1.1 200 OK`), cv.ShouldEqual, true)

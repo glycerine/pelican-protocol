@@ -285,6 +285,8 @@ func (s *LongPoller) Start() error {
 			err = oldest.ppResp.Save(oldest.respdup)
 			panicOn(err)
 
+			po("longpoll sending '%s'\n", string(oldest.ppResp.TotalPayload()))
+
 			close(oldest.done) // send reply!
 			countForUpstream = 0
 

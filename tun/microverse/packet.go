@@ -65,6 +65,13 @@ func (pp *PelicanPacket) AppendPayload(work []byte, atAb bool) {
 }
 
 func (pp *PelicanPacket) Verifies() bool {
+	// microverse omits keys
+	if pp.Key != "" {
+		if !IsLegitPelicanKey([]byte(pp.Key)) {
+			return false
+		}
+	}
+
 	if len(pp.Body) == 0 {
 		return true
 	}
@@ -102,6 +109,39 @@ func (pp *PelicanPacket) TotalPayloadSize() int64 {
 		}
 	}
 	return tot
+}
+
+func (pp *PelicanPacket) TotalPayload() []byte {
+	tot := pp.TotalPayloadSize()
+
+	if tot == 0 {
+		return []byte{}
+	}
+
+	if len(pp.Body) == 1 {
+		// don't copy if we can avoid it
+		return pp.Body[0].Payload
+	}
+
+	r := make([]byte, tot)
+
+	w := 0
+
+	for i := 0; i < len(pp.Body); i++ {
+
+		// sanity checks:
+		if int64(len(pp.Body[i].Payload)) != pp.Body[i].Paysize {
+			panic(fmt.Sprintf("len(pp.Body[i].Payload) != pp.Body[i].Paysize; %d != %d",
+				len(pp.Body[i].Payload),
+				pp.Body[i].Paysize))
+		}
+		if !pp.Body[i].Verifies() {
+			panic(fmt.Sprintf("body %d '%#v' failed to verify", i, pp.Body[i]))
+		}
+
+		w += copy(r[w:], pp.Body[i].Payload)
+	}
+	return r
 }
 
 func (pp *PelicanPacket) SetSerial(ser int64) {
