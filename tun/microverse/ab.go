@@ -830,9 +830,11 @@ func (s *Chaser) addIfPresent(tryMe *int64, by *bytes.Buffer) bool {
 	if !ok {
 		return false
 	}
-	po("ab reply misordering being corrected, reply sn: %d, data: '%s'",
-		*tryMe, string(ooo.response))
-	by.Write(ooo.response)
+	for i := 0; i < len(ooo.Body); i++ {
+		by.Write(ooo.Body[i].Payload)
+	}
+	po("ab reply misordering being corrected, reply sn: %d, by is now: '%s'", *tryMe, string(by.Bytes()))
+
 	delete(s.misorderedReplies, *tryMe)
 	s.lastRecvSerialNumberSeen = *tryMe
 	(*tryMe)++

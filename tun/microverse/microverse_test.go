@@ -13,7 +13,7 @@ func TestMicroverseEchoWorks043(t *testing.T) {
 	dn := NewBoundary("downstream")
 
 	ab2lp := make(chan *tunnelPacket)
-	lp2ab := make(chan *tunnelPacket)
+	lp2ab := make(chan *PelicanPacket)
 
 	lp := NewLittlePoll(5*time.Second, dn, ab2lp, lp2ab)
 

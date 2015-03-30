@@ -19,7 +19,7 @@ type LittlePoll struct {
 
 	down *Boundary
 
-	ab2lp chan *PelicanPacket
+	ab2lp chan *tunnelPacket
 	lp2ab chan *PelicanPacket
 
 	recvCount int
@@ -46,7 +46,7 @@ type LittlePoll struct {
 	forceReplySn []int64
 }
 
-func NewLittlePoll(pollDur time.Duration, dn *Boundary, ab2lp chan *PelicanPacket, lp2ab chan *PelicanPacket) *LittlePoll {
+func NewLittlePoll(pollDur time.Duration, dn *Boundary, ab2lp chan *tunnelPacket, lp2ab chan *PelicanPacket) *LittlePoll {
 
 	s := &LittlePoll{
 		reqStop:            make(chan bool),
@@ -265,8 +265,8 @@ func (s *LittlePoll) Start() error {
 					return
 				}
 
-			case pelpack = <-s.ab2lp:
-				pelpack.SetLpTm()
+			case pack := <-s.ab2lp:
+				pack.ppReq.SetLpTm()
 				wasOutOfOrder = false // assume okay order at first.
 				s.recvCount++
 				s.NoteTmRecv()
