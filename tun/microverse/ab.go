@@ -869,10 +869,3 @@ func (s *Chaser) addIfPresent(tryMe *int64, by *bytes.Buffer) bool {
 
 	return true
 }
-
-// replace with Pbody where Pbody.IsRequest = false, e.g. with , e.g. by call to NewResponsePbody()
-type SerResp struct {
-	response       []byte
-	responseSerial int64 // order the sends with content by serial number
-	tm             time.Time
-}

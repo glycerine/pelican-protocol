@@ -239,17 +239,7 @@ func (s *LittlePoll) Start() error {
 
 				countForUpstream += int64(len(b500))
 				oldestReqPack.ppResp.AppendPayload(b500, false)
-				/*
-					_, err := oldestReqPack.resp.Write(b500)
-					if err != nil {
-						panic(err)
-					}
 
-					_, err = oldestReqPack.respdup.Write(b500)
-					if err != nil {
-						panic(err)
-					}
-				*/
 				if !sendReplyUpstream() {
 					return
 				}
@@ -405,17 +395,6 @@ func (s *LittlePoll) Start() error {
 
 					countForUpstream += int64(len(b500))
 					oldest.ppResp.AppendPayload(b500, false)
-					/*
-						_, err := oldest.resp.Write(b500)
-						if err != nil {
-							panic(err)
-						}
-
-						_, err = oldest.respdup.Write(b500)
-						if err != nil {
-							panic(err)
-						}
-					*/
 
 				case <-time.After(10 * time.Millisecond):
 					po("%p  after 10msec of extra s.rw.RecvFromDownCh() reads", s)
