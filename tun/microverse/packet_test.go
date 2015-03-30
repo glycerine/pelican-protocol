@@ -17,9 +17,9 @@ func TestPacketLoadSave053(t *testing.T) {
 		rw := NewPelicanPacket(request, 23)
 
 		rw.Key = "mykey"
-		rw.AppendPayload([]byte("wonderful1"))
-		rw.AppendPayload([]byte("wonderful2"))
-		rw.AppendPayload([]byte("wonderful3"))
+		rw.AppendPayload([]byte("wonderful1"), false)
+		rw.AppendPayload([]byte("wonderful2"), false)
+		rw.AppendPayload([]byte("wonderful3"), false)
 
 		var o bytes.Buffer
 		rw.Save(&o)

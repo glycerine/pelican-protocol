@@ -47,13 +47,18 @@ func NewPelicanPacket(isReq isReqType, ser int64) *PelicanPacket {
 	}
 }
 
-func (pp *PelicanPacket) AppendPayload(work []byte) {
+func (pp *PelicanPacket) AppendPayload(work []byte, atAb bool) {
 	// ignore len 0 work
 	if len(work) == 0 {
 		return
 	}
 
 	newPbody := newPbody(pp.IsRequest, work, pp.Serialnum)
+	if atAb {
+		newPbody.AbTm = time.Now().UnixNano()
+	} else {
+		newPbody.LpTm = time.Now().UnixNano()
+	}
 	pp.Body = append(pp.Body, newPbody)
 }
 
@@ -76,10 +81,25 @@ func (pp *PelicanPacket) ShowPayload() {
 	} else {
 		for i := 0; i < len(pp.Body); i++ {
 			fmt.Printf("======== ShowPayload, Pbody %d of %d =========\n", i, len(pp.Body))
-			fmt.Printf("%s\n", string(pp.Body[i].Payload))
+			fmt.Printf("%d:'%s'\n", i, string(pp.Body[i].Payload))
 		}
 	}
 	fmt.Printf("\n=========== end of ShowPayload() ===================\n")
+}
+
+func (pp *PelicanPacket) TotalPayloadSize() int64 {
+	var tot int64
+	if len(pp.Body) == 0 {
+		return 0
+	} else {
+		for i := 0; i < len(pp.Body); i++ {
+			tot += int64(len(pp.Body[i].Payload))
+			if int64(len(pp.Body[i].Payload)) != pp.Body[i].Paysize {
+				panic("Paysize out of sync with len(pp.Body[i].Payload)!")
+			}
+		}
+	}
+	return tot
 }
 
 func (pp *PelicanPacket) SetSerial(ser int64) {
@@ -120,7 +140,6 @@ func newPbody(isRequest bool, payload []byte, ser int64) *Pbody {
 		Payload:   payload,
 		Paysize:   int64(len(payload)),
 		Serialnum: ser,
-		AbTm:      time.Now().UnixNano(),
 	}
 }
 

@@ -48,7 +48,7 @@ func TestRequestOneMisorderingIsCorrected046(t *testing.T) {
 		pack2.done = make(chan bool)
 		pack2.ppReq = NewPelicanPacket(request, sn)
 		pack2.ppReq.SetSerial(sn)
-		pack2.AddPayload(request, body2)
+		pack2.AddPayload(request, body2, false)
 
 		lp.ab2lp <- pack2
 
@@ -67,7 +67,7 @@ func TestRequestOneMisorderingIsCorrected046(t *testing.T) {
 		pack1.done = make(chan bool)
 		pack1.ppReq = NewPelicanPacket(request, sn)
 		pack1.ppReq.SetSerial(sn)
-		pack1.AddPayload(request, body1)
+		pack1.AddPayload(request, body1, false)
 
 		lp.ab2lp <- pack1
 
@@ -245,7 +245,7 @@ func SendHelper(ch chan *tunnelPacket, serialNum int64) *tunnelPacket {
 	pack2.done = make(chan bool)
 	pack2.ppReq = NewPelicanPacket(request, serialNum)
 	pack2.ppReq.SetSerial(serialNum)
-	pack2.AddPayload(request, body2)
+	pack2.AddPayload(request, body2, false)
 
 	ch <- pack2
 

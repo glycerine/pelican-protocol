@@ -32,16 +32,16 @@ func NewTunnelPacket(reqSer int64, respSer int64, key string) *tunnelPacket {
 	return p
 }
 
-func (t *tunnelPacket) AddPayload(isReq isReqType, work []byte) {
+func (t *tunnelPacket) AddPayload(isReq isReqType, work []byte, atAb bool) {
 	// ignore len 0 work
 	if len(work) == 0 {
 		return
 	}
 
 	if isReq == request {
-		t.ppReq.AppendPayload(work)
+		t.ppReq.AppendPayload(work, atAb)
 	} else {
-		t.ppResp.AppendPayload(work)
+		t.ppResp.AppendPayload(work, atAb)
 	}
 }
 

@@ -99,7 +99,7 @@ func ReplyToAbHelper(ch chan *tunnelPacket, serialNum int64) *tunnelPacket {
 	pack.done = make(chan bool)
 	pack.ppReq = NewPelicanPacket(request, serialNum)
 	pack.ppReq.SetSerial(serialNum)
-	pack.AddPayload(request, body)
+	pack.AddPayload(request, body, false)
 
 	ch <- pack
 

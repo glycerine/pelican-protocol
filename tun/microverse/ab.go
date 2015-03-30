@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"math/rand"
+	"reflect"
 	"sync"
 	"time"
 
@@ -681,7 +682,7 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 	pack := NewTunnelPacket(reqSer, -1, s.key)
 	pack.resp = NewMockResponseWriter()
 	pack.respdup = new(bytes.Buffer)
-	pack.AddPayload(request, work)
+	pack.AddPayload(request, work, true)
 
 	po("%p Chaser.DoRequestResponse() about to do initial request with packet.requestSerial: %d, work/pack.reqBody: '%s'", s, reqSer, string(work))
 
@@ -695,9 +696,24 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 	}
 
 	select {
-	case pack := <-s.lp2ab:
+	case flubber := <-s.lp2ab:
 		fmt.Printf("\n\n ab.go: pack <- s.lp2ab got pack.ppResp:\n")
-		ppResp = pack.ppResp
+		po("ab.go just received s.lp2ab <- flubber, where flubber.ppResp = '%#v'", flubber.ppResp)
+		flubber.ppResp.ShowPayload()
+
+		//ppResp = pack.ppResp
+
+		// use the capnp serialized form instead of the microverse pack.ppResp directly
+		ppResp = &PelicanPacket{}
+		ppResp.Load(flubber.respdup.Bytes())
+
+		po("ab.go deserialized ppResp from capnp/respdup = '%#v'", ppResp)
+		ppResp.ShowPayload()
+
+		if !reflect.DeepEqual(ppResp, flubber.ppResp) {
+			panic("capnp serialization missed something")
+		}
+
 		if !ppResp.Verifies() {
 			fmt.Printf("ppResp on s.lp2ab did not verify checksum!: '%#v'\ngoon.Dump:\n", ppResp)
 			goon.Dump(ppResp)

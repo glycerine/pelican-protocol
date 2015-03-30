@@ -163,8 +163,8 @@ func (s *LittlePoll) Start() error {
 
 			po("%p LittlePoll sendReplyUpstream() is sending along oldest ClientRequest with response, countForUpstream(%d) >0 || waiters.Len()==%d was > 0", s, countForUpstream, waiters.Len())
 
-			if countForUpstream != int64(len(oldest.respdup.Bytes())) {
-				panic(fmt.Sprintf("should never get here: countForUpstream is out of sync with oldest.respdup.Bytes(): %d == countForUpstream != len(oldest.respdup.Bytes()) == %d", countForUpstream, len(oldest.respdup.Bytes())))
+			if countForUpstream != oldest.ppResp.TotalPayloadSize() {
+				panic(fmt.Sprintf("should never get here: countForUpstream is out of sync with oldest.ppResp.TotalPayloadSize(): %d == countForUpstream != len(oldest.ppResp.TotalPayloadSize() == %d", countForUpstream, oldest.ppResp.TotalPayloadSize()))
 			}
 
 			if countForUpstream > 0 {
@@ -176,10 +176,10 @@ func (s *LittlePoll) Start() error {
 				rs := s.getReplySerial()
 				oldest.ppResp.SetSerial(rs)
 
-				oldest.ppResp.AppendPayload(oldest.respdup.Bytes())
-
-				// write capnp format to resp
+				// write capnp format to resp/respdup
 				err := oldest.ppResp.Save(oldest.resp)
+				panicOn(err)
+				err = oldest.ppResp.Save(oldest.respdup)
 				panicOn(err)
 
 			} else {
@@ -235,17 +235,19 @@ func (s *LittlePoll) Start() error {
 				oldestReqPack := waiters.PeekRight()
 				po("%p  LittlePoll got data from downstream <-s.rw.RecvFromDownCh() got b500='%s'. oldestReqPack.respdup.Bytes() = '%s'\n", s, string(b500), string(oldestReqPack.respdup.Bytes()))
 
-				_, err := oldestReqPack.resp.Write(b500)
-				if err != nil {
-					panic(err)
-				}
 				countForUpstream += int64(len(b500))
+				oldestReqPack.ppResp.AppendPayload(b500, false)
+				/*
+					_, err := oldestReqPack.resp.Write(b500)
+					if err != nil {
+						panic(err)
+					}
 
-				_, err = oldestReqPack.respdup.Write(b500)
-				if err != nil {
-					panic(err)
-				}
-
+					_, err = oldestReqPack.respdup.Write(b500)
+					if err != nil {
+						panic(err)
+					}
+				*/
 				if !sendReplyUpstream() {
 					return
 				}
@@ -399,16 +401,19 @@ func (s *LittlePoll) Start() error {
 
 					oldest := waiters.PeekRight()
 
-					_, err := oldest.resp.Write(b500)
-					if err != nil {
-						panic(err)
-					}
 					countForUpstream += int64(len(b500))
+					oldest.ppResp.AppendPayload(b500, false)
+					/*
+						_, err := oldest.resp.Write(b500)
+						if err != nil {
+							panic(err)
+						}
 
-					_, err = oldest.respdup.Write(b500)
-					if err != nil {
-						panic(err)
-					}
+						_, err = oldest.respdup.Write(b500)
+						if err != nil {
+							panic(err)
+						}
+					*/
 
 				case <-time.After(10 * time.Millisecond):
 					po("%p  after 10msec of extra s.rw.RecvFromDownCh() reads", s)
