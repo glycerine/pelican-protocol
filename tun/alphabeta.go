@@ -9,6 +9,8 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"github.com/glycerine/go-goon"
 )
 
 // Similar in spirit to Comet, Ajax-long-polling,
@@ -95,7 +97,7 @@ type Chaser struct {
 	nextSendSerialNumber     int64
 	lastRecvSerialNumberSeen int64
 
-	misorderedReplies map[int64]*SerResp
+	misorderedReplies map[int64]*PelicanPacket
 
 	tmLastRecv []time.Time
 	tmLastSend []time.Time
@@ -213,7 +215,7 @@ func NewChaser(cfg ChaserConfig, conn net.Conn, key string, notifyDone chan *Cha
 		shutdownInactiveDur:  cfg.ShutdownInactiveDur,
 		inactiveTimer:        time.NewTimer(cfg.ShutdownInactiveDur),
 		nextSendSerialNumber: 1,
-		misorderedReplies:    make(map[int64]*SerResp),
+		misorderedReplies:    make(map[int64]*PelicanPacket),
 
 		tmLastSend: make([]time.Time, 0),
 		tmLastRecv: make([]time.Time, 0),
@@ -835,15 +837,27 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 	body, err := ioutil.ReadAll(resp.Body)
 	panicOn(err)
 
-	recvSerial = -1 // default for empty bytes in body
-	if len(body) >= SerialLen {
-		// if there are any bytes, then the replySerial number will be the last 8
-		serStart := len(body) - SerialLen
-		recvSerial = BytesToSerial(body[serStart:])
-		body = body[:serStart]
+	// use the capnp serialized form instead of the microverse pack.ppResp directly
+	ppResp := &PelicanPacket{}
+	ppResp.Load(body)
+
+	//po("ab.go deserialized ppResp from capnp/respdup = '%#v'", ppResp)
+	//ppResp.ShowPayload()
+
+	if !ppResp.Verifies() {
+		fmt.Printf("ppResp on s.lp2ab did not verify checksum!: '%#v'\ngoon.Dump:\n", ppResp)
+		goon.Dump(ppResp)
+		panic("ppResp on s.lp2ab did not verify checksum!")
 	}
 
-	po("%p chaser '%s' / '%s', resp.Body = '%s'. With recvSerial = %d\n", s, s.key[:5], s.rw.name, string(body), recvSerial)
+	ppResp.SetAbTm()
+
+	recvSerial = -1
+	if ppResp.TotalPayloadSize() > 0 {
+		recvSerial = ppResp.Serialnum
+	}
+
+	po("%p chaser '%s' / '%s'. With recvSerial = %d\n", s, s.key[:5], s.rw.name, recvSerial)
 
 	if recvSerial >= 0 {
 		// adjust s.lastRecvSerialNumberSeen and s.misorderedReplies under lock
@@ -852,21 +866,70 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 
 		if recvSerial != s.lastRecvSerialNumberSeen+1 {
 
-			s.misorderedReplies[recvSerial] = &SerResp{
-				response:       back,
-				responseSerial: recvSerial,
-				tm:             time.Now(),
-			}
+			s.misorderedReplies[recvSerial] = ppResp
 			// wait to send upstream: indicate this by giving back 0 length.
 			back = back[:0]
+			s.mut.Unlock()
 		} else {
 			s.lastRecvSerialNumberSeen++
+			s.mut.Unlock()
+
+			// okay to reply in back with this data:
+			if len(ppResp.Body) == 1 {
+				back = ppResp.Body[0].Payload
+			} else {
+				// put together the multiple parts in Body
+				n := 0
+				for i := 0; i < len(ppResp.Body); i++ {
+					n += len(ppResp.Body[i].Payload)
+					// sanity checks:
+					if int64(len(ppResp.Body[i].Payload)) != ppResp.Body[i].Paysize {
+						panic(fmt.Sprintf("len(ppResp.Body[i].Payload) != ppResp.Body[i].Paysize; %d != %d",
+							len(ppResp.Body[i].Payload),
+							ppResp.Body[i].Paysize))
+					}
+					if !ppResp.Body[i].Verifies() {
+						panic(fmt.Sprintf("body %d '%#v' failed to verify", i, ppResp.Body[i]))
+					}
+				}
+				back = make([]byte, n)
+				wrote := 0
+				for i := 0; i < len(ppResp.Body); i++ {
+					wrote += copy(back[wrote:], ppResp.Body[i].Payload)
+				}
+			}
+			// end reply in back with this data
 		}
 	}
 
 	return body, recvSerial, err
 }
 
+// Helper for startAlpha/startBeta;
+// returns true iff we found and deleted tryMe from the s.misorderedReplies map.
+//  Along with the delete we write the contents of the found.response to 'by'.
+func (s *Chaser) addIfPresent(tryMe *int64, by *bytes.Buffer) bool {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
+	ooo, ok := s.misorderedReplies[*tryMe]
+
+	if !ok {
+		return false
+	}
+	for i := 0; i < len(ooo.Body); i++ {
+		by.Write(ooo.Body[i].Payload)
+	}
+	po("ab reply misordering being corrected, reply sn: %d, by is now: '%s'", *tryMe, string(by.Bytes()))
+
+	delete(s.misorderedReplies, *tryMe)
+	s.lastRecvSerialNumberSeen = *tryMe
+	(*tryMe)++
+
+	return true
+}
+
+/*
 // Helper for startAlpha/startBeta;
 // returns true iff we found and deleted tryMe from the s.misorderedReplies map.
 //  Along with the delete we write the contents of the found.response to 'by'.
@@ -888,12 +951,7 @@ func (s *Chaser) addIfPresent(tryMe *int64, by *bytes.Buffer) bool {
 
 	return true
 }
-
-type SerResp struct {
-	response       []byte
-	responseSerial int64 // order the sends with content by serial number
-	tm             time.Time
-}
+*/
 
 /// logging
 
