@@ -99,7 +99,7 @@ func newPbody(isRequest bool, payload []byte, ser int64) *Pbody {
 }
 
 func (pb *Pbody) Verifies() bool {
-	if pb.Paymac == sha3.Sum512(pb.Payload) && pb.Paysize == len(pb.Payload) {
+	if pb.Paymac == sha3.Sum512(pb.Payload) && pb.Paysize == int64(len(pb.Payload)) {
 		return true
 	}
 	return false

@@ -45,7 +45,7 @@ type Chaser struct {
 	lastActiveTm        time.Time
 	mutTimer            sync.Mutex
 
-	lp2ab chan *PelicanPacket
+	lp2ab chan *tunnelPacket
 	ab2lp chan *tunnelPacket
 
 	tmLastRecv []time.Time
@@ -100,7 +100,7 @@ func NewChaser(
 	incoming chan []byte,
 	repliesHere chan []byte,
 	ab2lp chan *tunnelPacket,
-	lp2ab chan *PelicanPacket) *Chaser {
+	lp2ab chan *tunnelPacket) *Chaser {
 
 	SetChaserConfigDefaults(&cfg)
 
@@ -408,6 +408,9 @@ type ClientHome struct {
 	reqStop chan bool
 	Done    chan bool
 
+	IsAlphaHome chan bool
+	IsBetaHome  chan bool
+
 	alphaArrivesHome chan bool
 	betaArrivesHome  chan bool
 
@@ -453,6 +456,9 @@ func NewClientHome() *ClientHome {
 	s := &ClientHome{
 		reqStop: make(chan bool),
 		Done:    make(chan bool),
+
+		IsAlphaHome: make(chan bool),
+		IsBetaHome:  make(chan bool),
 
 		alphaArrivesHome: make(chan bool),
 		betaArrivesHome:  make(chan bool),
@@ -518,6 +524,8 @@ func (s *ClientHome) Start() {
 		}()
 		for {
 			select {
+			case s.IsAlphaHome <- s.alphaHome:
+			case s.IsBetaHome <- s.betaHome:
 
 			case <-s.alphaArrivesHome:
 				now := time.Now()
@@ -688,8 +696,9 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 	}
 
 	select {
-	case ppResp = <-s.lp2ab:
-		fmt.Printf("\n\n ab.go: pack <- s.lp2ab got:\n")
+	case pack := <-s.lp2ab:
+		fmt.Printf("\n\n ab.go: pack <- s.lp2ab got pack.ppResp:\n")
+		ppResp = pack.ppResp
 		goon.Dump(ppResp)
 
 		ppResp.SetAbTm()
@@ -700,7 +709,7 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 			recvSerial = ppResp.Serialnum
 		}
 
-		po("DoRequestResponse got from lp2ab: '%s', with recvSerial=%d", string(back), ppResp.Serialnum)
+		po("DoRequestResponse got from lp2ab: '%#v', with recvSerial=%d", ppResp, ppResp.Serialnum)
 		s.NoteTmRecv()
 	case <-s.reqStop:
 		po("Chaser reqStop before lp2ab reply received")
