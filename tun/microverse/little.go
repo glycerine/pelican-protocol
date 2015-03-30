@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/glycerine/go-goon"
 )
 
 type LittlePoll struct {
@@ -257,6 +259,12 @@ func (s *LittlePoll) Start() error {
 				// a server initiated reply medium. And we should never send
 				// a zero serial -- they start at 1.
 				if pack.ppReq.Serialnum > 0 {
+
+					if !pack.ppReq.Verifies() {
+						fmt.Printf("pack.ppReq on s.ab2lp did not verify checksum!: '%#v'\ngoon.Dump:\n", pack.ppReq)
+						goon.Dump(pack.ppReq)
+						panic("pack.ppReq on s.ab2lp did not verify checksum!")
+					}
 
 					if pack.ppReq.Serialnum != s.lastRequestSerialNumberSeen+1 {
 						po("detected out of order pack %d, s.lastRequestSerialNumberSeen=%d",

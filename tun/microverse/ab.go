@@ -698,7 +698,11 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 	case pack := <-s.lp2ab:
 		fmt.Printf("\n\n ab.go: pack <- s.lp2ab got pack.ppResp:\n")
 		ppResp = pack.ppResp
-		goon.Dump(ppResp)
+		if !ppResp.Verifies() {
+			fmt.Printf("ppResp on s.lp2ab did not verify checksum!: '%#v'\ngoon.Dump:\n", ppResp)
+			goon.Dump(ppResp)
+			panic("ppResp on s.lp2ab did not verify checksum!")
+		}
 
 		ppResp.SetAbTm()
 

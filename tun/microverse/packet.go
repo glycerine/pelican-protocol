@@ -57,6 +57,18 @@ func (pp *PelicanPacket) AppendPayload(work []byte) {
 	pp.Body = append(pp.Body, newPbody)
 }
 
+func (pp *PelicanPacket) Verifies() bool {
+	if len(pp.Body) == 0 {
+		return true
+	}
+	for _, v := range pp.Body {
+		if !v.Verifies() {
+			return false
+		}
+	}
+	return true
+}
+
 func (pp *PelicanPacket) ShowPayload() {
 	fmt.Printf("\n=========== begin ShowPayload() ===================\n")
 	if len(pp.Body) == 0 {
