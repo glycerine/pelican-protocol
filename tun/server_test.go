@@ -38,6 +38,7 @@ func TestReverseProxyToUltimateWebServerMock005(t *testing.T) {
 
 	// ping allows our test machinery to function
 	mux.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
+		po("ping received! writing poing")
 		r.Body.Close()
 		fmt.Fprintf(w, "pong")
 	})
@@ -61,44 +62,49 @@ func TestReverseProxyToUltimateWebServerMock005(t *testing.T) {
 		panic("reverse proxy server did not come up")
 	}
 
-	cv.Convey("The PelicanReverseProxy should pass requests downstream to the ultimate webserver\n", t, func() {
+	tunnel := NewLongPoller(LongPollerConfig{Dest: web.Cfg.Listen, PollDur: 2 * time.Second, Bufsz: 1024 * 1024})
+	err = tunnel.Start()
+	panicOn(err)
+	defer tunnel.Stop()
+	rev.createQueue <- tunnel
 
-		tunnel := NewLongPoller(LongPollerConfig{Dest: web.Cfg.Listen, PollDur: 2 * time.Second, Bufsz: 1024 * 1024})
-		err := tunnel.Start()
-		cv.So(err, cv.ShouldEqual, nil)
-		defer tunnel.Stop()
-		rev.createQueue <- tunnel
-
-		body := []byte(`GET /ping HTTP/1.1
+	body := []byte(`GET /ping HTTP/1.1
 Host: 127.0.0.1:54284
 User-Agent: Go 1.1 package http
 Accept-Encoding: gzip
 
 `)
 
-		mockRw := &MockResponseWriter{}
-		mockReq, err := http.NewRequest("GET", "/ping", bytes.NewBuffer(body))
-		if err != nil {
-			panic(err)
-		}
+	mockRw := &MockResponseWriter{}
+	mockReq, err := http.NewRequest("GET", "/ping", bytes.NewBuffer(body))
+	if err != nil {
+		panic(err)
+	}
 
-		ppReq := NewPelicanPacket(request, 1)
-		ppReq.Key = tunnel.key
-		ppReq.AppendPayload(body, false)
+	ppReq := NewPelicanPacket(request, 1)
+	ppReq.Key = tunnel.key
+	ppReq.AppendPayload(body, false)
+	po("ppReq = '%#v'\n", ppReq)
 
-		rawreply, err := rev.injectPacket(mockRw, mockReq, ppReq)
+	rawreply, err := rev.injectPacket(mockRw, mockReq, ppReq)
+	panicOn(err)
 
-		ppResp := &PelicanPacket{}
-		ppResp.Load(rawreply)
-		if !ppResp.Verifies() {
-			fmt.Printf("ppResp on s.lp2ab did not verify checksum!: '%#v'\ngoon.Dump:\n", ppResp)
-			panic("ppResp on s.lp2ab did not verify checksum!")
-		}
+	po("ppReq injected, rawreply is len %d", len(rawreply))
 
-		reply := ppResp.TotalPayload()
+	ppResp := &PelicanPacket{}
+	ppResp.Load(rawreply)
+	if !ppResp.Verifies() {
+		fmt.Printf("ppResp on s.lp2ab did not verify checksum!: '%#v'\ngoon.Dump:\n", ppResp)
+		panic("ppResp on s.lp2ab did not verify checksum!")
+	} else {
+		po("ppResp = '%#v'\n", ppResp)
+	}
 
-		cv.So(err, cv.ShouldEqual, nil)
-		po("reply = '%s'", string(reply))
+	reply := ppResp.TotalPayload()
+
+	po("reply = '%s'", string(reply))
+	cv.Convey("The PelicanReverseProxy should pass requests downstream to the ultimate webserver\n", t, func() {
+
 		cv.So(strings.HasPrefix(string(reply), `HTTP/1.1 200 OK`), cv.ShouldEqual, true)
 		cv.So(strings.Contains(string(reply), `Content-Length: 4`), cv.ShouldEqual, true)
 		cv.So(strings.HasSuffix(string(reply), "pong"), cv.ShouldEqual, true)

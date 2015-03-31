@@ -155,7 +155,7 @@ func (s *ReverseProxy) Start() {
 					return
 				}
 			case p := <-s.createQueue:
-				po("ReverseProxy::Start(): got tunnelPacket  p=%p on <-createQueue\n", p)
+				po("ReverseProxy::Start(): got LongPoller  p=%p on <-createQueue\n", p)
 				tunnelMap[p.key] = p
 				po("ReverseProxy::Start(): after adding key '%s' to tunnelMap", string(p.key[:5]))
 
@@ -311,6 +311,16 @@ func NewTunnelPacket(reqSer int64, respSer int64, key string) *tunnelPacket {
 	return p
 }
 
+func NewTunnelPacketFromPpReq(ppReq *PelicanPacket) *tunnelPacket {
+	p := &tunnelPacket{
+		key:    ppReq.Key,
+		done:   make(chan bool),
+		ppReq:  ppReq,
+		ppResp: NewPelicanPacket(response, -1),
+	}
+	return p
+}
+
 func (t *tunnelPacket) AddPayload(isReq isReqType, work []byte, atAb bool) {
 	// ignore len 0 work
 	if len(work) == 0 {
@@ -347,10 +357,10 @@ type SerReq struct {
 
 func (s *ReverseProxy) injectPacket(c http.ResponseWriter, r *http.Request, ppReq *PelicanPacket) ([]byte, error) {
 
-	pack := NewTunnelPacket(ppReq.Serialnum, -1, ppReq.Key)
+	pack := NewTunnelPacketFromPpReq(ppReq)
 	pack.resp = c
 	pack.respdup = new(bytes.Buffer)
-	pack.done = make(chan bool)
+	pack.request = r
 
 	/*
 		pack := &tunnelPacket{
