@@ -41,11 +41,12 @@ type PelicanPacket struct {
 	Body      []*Pbody `capid:"3"`
 }
 
-func NewPelicanPacket(isReq isReqType, ser int64) *PelicanPacket {
+func NewPelicanPacket(isReq isReqType, ser int64, key string) *PelicanPacket {
 	return &PelicanPacket{
 		IsRequest: bool(isReq),
 		Serialnum: ser,
 		Body:      make([]*Pbody, 0),
+		Key:       key,
 	}
 }
 
@@ -65,11 +66,8 @@ func (pp *PelicanPacket) AppendPayload(work []byte, atAb bool) {
 }
 
 func (pp *PelicanPacket) Verifies() bool {
-	// microverse omits keys
-	if pp.Key != "" {
-		if !IsLegitPelicanKey([]byte(pp.Key)) {
-			return false
-		}
+	if !IsLegitPelicanKey([]byte(pp.Key)) {
+		return false
 	}
 
 	if len(pp.Body) == 0 {

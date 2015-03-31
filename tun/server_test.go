@@ -81,8 +81,7 @@ Accept-Encoding: gzip
 		panic(err)
 	}
 
-	ppReq := NewPelicanPacket(request, 1)
-	ppReq.Key = tunnel.key
+	ppReq := NewPelicanPacket(request, 1, tunnel.key)
 	ppReq.AppendPayload(body, false)
 	po("ppReq = '%#v'\n", ppReq)
 

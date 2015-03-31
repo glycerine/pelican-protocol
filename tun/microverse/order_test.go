@@ -41,12 +41,13 @@ func TestRequestOneMisorderingIsCorrected046(t *testing.T) {
 		panicOn(err)
 
 		sn := int64(2)
-		pack2 := NewTunnelPacket(sn, -1, "longpoll_test_key")
+		key := string(GenPelicanKey())
+		pack2 := NewTunnelPacket(sn, -1, key)
 		pack2.resp = c2
 		pack2.respdup = new(bytes.Buffer)
 		pack2.request = r2
 		pack2.done = make(chan bool)
-		pack2.ppReq = NewPelicanPacket(request, sn)
+		pack2.ppReq = NewPelicanPacket(request, sn, key)
 		pack2.ppReq.SetSerial(sn)
 		pack2.AddPayload(request, body2, false)
 
@@ -60,12 +61,12 @@ func TestRequestOneMisorderingIsCorrected046(t *testing.T) {
 		panicOn(err)
 
 		sn = 1
-		pack1 := NewTunnelPacket(sn, -1, "longpoll_test_key")
+		pack1 := NewTunnelPacket(sn, -1, key)
 		pack1.resp = c1
 		pack1.respdup = new(bytes.Buffer)
 		pack1.request = r1
 		pack1.done = make(chan bool)
-		pack1.ppReq = NewPelicanPacket(request, sn)
+		pack1.ppReq = NewPelicanPacket(request, sn, key)
 		pack1.ppReq.SetSerial(sn)
 		pack1.AddPayload(request, body1, false)
 
@@ -237,13 +238,13 @@ func SendHelper(ch chan *tunnelPacket, serialNum int64) *tunnelPacket {
 	reqBody2 := bytes.NewBuffer(body2)
 	r2, err := http.NewRequest("POST", "http://example.com/", reqBody2)
 	panicOn(err)
-
-	pack2 := NewTunnelPacket(serialNum, -1, "longpoll_test_key")
+	key := string(GenPelicanKey())
+	pack2 := NewTunnelPacket(serialNum, -1, key)
 	pack2.resp = c2
 	pack2.respdup = new(bytes.Buffer)
 	pack2.request = r2
 	pack2.done = make(chan bool)
-	pack2.ppReq = NewPelicanPacket(request, serialNum)
+	pack2.ppReq = NewPelicanPacket(request, serialNum, key)
 	pack2.ppReq.SetSerial(serialNum)
 	pack2.AddPayload(request, body2, false)
 

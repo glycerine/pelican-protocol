@@ -96,6 +96,7 @@ func SetChaserConfigDefaults(cfg *ChaserConfig) {
 }
 
 func NewChaser(
+	key string,
 	cfg ChaserConfig,
 	incoming chan []byte,
 	repliesHere chan []byte,
@@ -120,6 +121,7 @@ func NewChaser(
 		closedChan:  make(chan bool),
 		home:        NewClientHome(),
 		cfg:         cfg,
+		key:         key,
 
 		shutdownInactiveDur: cfg.ShutdownInactiveDur,
 		inactiveTimer:       time.NewTimer(cfg.ShutdownInactiveDur),

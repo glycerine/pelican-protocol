@@ -24,6 +24,10 @@ func RandBytes(n int) []byte {
 	return b
 }
 
+func GenPelicanKeyString() string {
+	return string(GenPelicanKey())
+}
+
 func GenPelicanKey() []byte {
 
 	key := RandBytes(2 * randByteCount)

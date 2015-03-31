@@ -305,8 +305,8 @@ func NewTunnelPacket(reqSer int64, respSer int64, key string) *tunnelPacket {
 	p := &tunnelPacket{
 		key:    key,
 		done:   make(chan bool),
-		ppReq:  NewPelicanPacket(request, reqSer),
-		ppResp: NewPelicanPacket(response, respSer),
+		ppReq:  NewPelicanPacket(request, reqSer, key),
+		ppResp: NewPelicanPacket(response, respSer, key),
 	}
 	return p
 }
@@ -316,7 +316,7 @@ func NewTunnelPacketFromPpReq(ppReq *PelicanPacket) *tunnelPacket {
 		key:    ppReq.Key,
 		done:   make(chan bool),
 		ppReq:  ppReq,
-		ppResp: NewPelicanPacket(response, -1),
+		ppResp: NewPelicanPacket(response, -1, ppReq.Key),
 	}
 	return p
 }

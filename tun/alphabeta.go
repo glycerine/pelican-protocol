@@ -804,8 +804,7 @@ func (s *Chaser) DoRequestResponse(work []byte, urlPath string) (back []byte, re
 		reqSer = s.getNextSendSerNum()
 	}
 
-	ppReq := NewPelicanPacket(request, reqSer)
-	ppReq.Key = s.key
+	ppReq := NewPelicanPacket(request, reqSer, s.key)
 	ppReq.AppendPayload(work, true)
 
 	var req bytes.Buffer

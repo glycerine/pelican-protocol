@@ -14,9 +14,9 @@ import (
 func TestPacketLoadSave053(t *testing.T) {
 
 	cv.Convey("test that basic PelicanPacket serialization and deserialization work", t, func() {
-		rw := NewPelicanPacket(request, 23)
+		key := string(GenPelicanKey())
+		rw := NewPelicanPacket(request, 23, key)
 
-		rw.Key = "mykey"
 		rw.AppendPayload([]byte("wonderful1"), false)
 		rw.AppendPayload([]byte("wonderful2"), false)
 		rw.AppendPayload([]byte("wonderful3"), false)

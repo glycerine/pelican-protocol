@@ -22,7 +22,7 @@ func TestReplyMisorderingsAreCorrected048(t *testing.T) {
 	lp.SetReplySerialReordering([]int64{5, 1, 3, 2, 4})
 
 	up := NewBoundary("upstream")
-	ab := NewChaser(ChaserConfig{}, up.Generate, up.Absorb, ab2lp, lp2ab)
+	ab := NewChaser(GenPelicanKeyString(), ChaserConfig{}, up.Generate, up.Absorb, ab2lp, lp2ab)
 
 	dn.SetEcho(true)
 	dn.Start()
@@ -92,12 +92,13 @@ func ReplyToAbHelper(ch chan *tunnelPacket, serialNum int64) *tunnelPacket {
 	r, err := http.NewRequest("POST", "http://example.com/", reqBody)
 	panicOn(err)
 
-	pack := NewTunnelPacket(serialNum, -1, "longpoll_test_key")
+	key := string(GenPelicanKey())
+	pack := NewTunnelPacket(serialNum, -1, key)
 	pack.resp = c
 	pack.respdup = new(bytes.Buffer)
 	pack.request = r
 	pack.done = make(chan bool)
-	pack.ppReq = NewPelicanPacket(request, serialNum)
+	pack.ppReq = NewPelicanPacket(request, serialNum, key)
 	pack.ppReq.SetSerial(serialNum)
 	pack.AddPayload(request, body, false)
 

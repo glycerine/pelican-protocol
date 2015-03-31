@@ -18,7 +18,7 @@ func TestMicroverseEchoWorks043(t *testing.T) {
 	lp := NewLittlePoll(5*time.Second, dn, ab2lp, lp2ab)
 
 	up := NewBoundary("upstream")
-	ab := NewChaser(ChaserConfig{}, up.Generate, up.Absorb, ab2lp, lp2ab)
+	ab := NewChaser(GenPelicanKeyString(), ChaserConfig{}, up.Generate, up.Absorb, ab2lp, lp2ab)
 
 	dn.SetEcho(true)
 	dn.Start()
@@ -80,7 +80,7 @@ func TestMicroverseShutdownCleanly044(t *testing.T) {
 
 		up := NewBoundary("upstream")
 
-		ab := NewChaser(ChaserConfig{}, up.Generate, up.Absorb, ab2lp, lp2ab)
+		ab := NewChaser(GenPelicanKeyString(), ChaserConfig{}, up.Generate, up.Absorb, ab2lp, lp2ab)
 
 		dn.Start()
 		lp.Start()
@@ -115,7 +115,7 @@ func TestMicroverseLongPollTimeoutsCausePacketCirculationOtherwiseIdle042(t *tes
 	lp := NewLittlePoll(longPollDur, dn, ab2lp, lp2ab)
 
 	up := NewBoundary("upstream")
-	ab := NewChaser(ChaserConfig{}, up.Generate, up.Absorb, ab2lp, lp2ab)
+	ab := NewChaser(GenPelicanKeyString(), ChaserConfig{}, up.Generate, up.Absorb, ab2lp, lp2ab)
 
 	dn.Start()
 	defer dn.Stop()
