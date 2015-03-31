@@ -169,7 +169,7 @@ type NetConnReader struct {
 }
 
 // NetConnReaderDefaultBufSizeBytes declares the default read buffer size.
-// It may be overriden in the call to NewnetConnReader by setting the bufsz
+// It may be overriden in the call to NewNetConnReader by setting the bufsz
 // parameter.
 //
 const NetConnReaderDefaultBufSizeBytes = 1 * 1024 * 1024

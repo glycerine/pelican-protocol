@@ -208,7 +208,9 @@ func (s *LongPoller) Start() error {
 	}
 
 	// s.dial() sets s.conn on success.
-	s.rw = NewServerRW("ServerRW/LongPoller", s.conn, 1024*1024, nil, nil, s)
+	bufsz := DefaultChaserConfig().BufSize
+	bufsz = 1024 * 1024
+	s.rw = NewServerRW("ServerRW/LongPoller", s.conn, bufsz, nil, nil, s)
 	s.rw.Start()
 
 	go func() {
