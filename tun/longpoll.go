@@ -337,13 +337,11 @@ func (s *LongPoller) Start() error {
 			case pack = <-s.ClientPacketRecvd:
 				s.recvCount++
 				s.NoteTmRecv()
-				po("%p  longPoller got client packet! recvCount now: %d", s, s.recvCount)
+				po("%p '%s' longPoller got client packet! recvCount now: %d", s, skey, s.recvCount)
 
 				if pack.ppReq.TotalPayloadSize() > 0 {
 					s.lastUseTm = time.Now()
 				}
-
-				po("%p '%s' longPoller got client packet! recvCount now: %d", s, skey, s.recvCount)
 
 				// ignore negative serials--they were just for getting
 				// a server initiated reply medium. And we should never send
